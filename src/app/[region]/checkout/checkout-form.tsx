@@ -1,0 +1,145 @@
+"use client";
+
+import { useActionState } from "react";
+import { placeOrder, type CheckoutState } from "./actions";
+
+const FIELD =
+  "w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-300 focus:border-copper-400 focus:outline-none";
+
+const LABEL = "block text-xs font-semibold text-ink-700";
+
+export function CheckoutForm({ region }: { region: string }) {
+  const [state, formAction, pending] = useActionState<CheckoutState, FormData>(
+    placeOrder,
+    {},
+  );
+
+  // Restored after a failed submit; React 19 clears the form on action resolve.
+  const prior = state.values ?? {};
+
+  return (
+    <form action={formAction} className="space-y-8">
+      <section>
+        <h2 className="text-sm font-bold text-ink-950">Contact</h2>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label htmlFor="email" className={LABEL}>
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              defaultValue={prior.email ?? ""}
+              type="email"
+              required
+              autoComplete="email"
+              placeholder="lab@institution.edu"
+              className={`${FIELD} mt-1.5`}
+            />
+            <p className="mt-1.5 text-xs text-ink-400">
+              Order confirmation and the batch COA are sent here.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="institution" className={LABEL}>
+              Institution or lab <span className="font-normal text-ink-400">(optional)</span>
+            </label>
+            <input
+              id="institution"
+              name="institution"
+              defaultValue={prior.institution ?? ""}
+              type="text"
+              className={`${FIELD} mt-1.5`}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-bold text-ink-950">Shipping address</h2>
+        {/* SCAFFOLD: not persisted, not validated, not rated for shipping. */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label htmlFor="name" className={LABEL}>Full name</label>
+            <input id="name" name="name" defaultValue={prior.name ?? ""} required autoComplete="name" className={`${FIELD} mt-1.5`} />
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="address" className={LABEL}>Street address</label>
+            <input id="address" name="address" defaultValue={prior.address ?? ""} required autoComplete="street-address" className={`${FIELD} mt-1.5`} />
+          </div>
+          <div>
+            <label htmlFor="city" className={LABEL}>City</label>
+            <input id="city" name="city" defaultValue={prior.city ?? ""} required autoComplete="address-level2" className={`${FIELD} mt-1.5`} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="state" className={LABEL}>State</label>
+              <input id="state" name="state" defaultValue={prior.state ?? ""} required autoComplete="address-level1" className={`${FIELD} mt-1.5`} />
+            </div>
+            <div>
+              <label htmlFor="postal" className={LABEL}>ZIP</label>
+              <input id="postal" name="postal" defaultValue={prior.postal ?? ""} required autoComplete="postal-code" inputMode="numeric" className={`${FIELD} mt-1.5`} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-bold text-ink-950">Payment</h2>
+        <div className="mt-4 rounded-xl border border-dashed border-ink-300 bg-ink-50/60 p-5">
+          <p className="text-sm font-medium text-ink-800">
+            Gateway fields not mounted
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
+            In production this is where the gateway&apos;s hosted card fields go —
+            an iframe the provider owns, so card numbers never touch this
+            server. Until then the form submits a test token.
+          </p>
+          <label htmlFor="paymentToken" className={`${LABEL} mt-4`}>
+            Test token
+          </label>
+          <select id="paymentToken" name="paymentToken" defaultValue="tok_test" className={`${FIELD} mt-1.5`}>
+            <option value="tok_test">tok_test — approves</option>
+            <option value="tok_decline">tok_decline — declines</option>
+          </select>
+        </div>
+      </section>
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-ink-200 bg-white px-4 py-3">
+        <input
+          type="checkbox"
+          name="attestation"
+          required
+          defaultChecked={prior.attestation === "on"}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 accent-copper-600"
+        />
+        <span className="text-xs leading-relaxed text-ink-700">
+          I confirm I am a qualified researcher and that these materials are
+          being purchased for in vitro laboratory research only — not for human
+          or veterinary use.
+        </span>
+      </label>
+
+      {state.error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          {state.error}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={pending}
+        className="flex w-full items-center justify-center rounded-full bg-ink-950 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-300"
+      >
+        {pending ? "Placing order…" : "Place order"}
+      </button>
+
+      <p className="text-center font-mono text-[10px] uppercase tracking-wider text-ink-300">
+        Region {region.toUpperCase()} · No charge will be made
+      </p>
+    </form>
+  );
+}

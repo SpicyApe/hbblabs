@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/*
+ * Brand palette. Paired with src/lib/brand.ts — that file owns the words,
+ * this block owns the colors. Changing identity means editing both.
+ *
+ * Direction: ink navy + copper on bone. Reads clinical without going sterile;
+ * the copper nods at GHK-Cu without being literal about it.
+ */
+@theme {
+  /* Ground */
+  --color-bone-50: #fdfcfa;
+  --color-bone-100: #faf7f2;
+  --color-bone-200: #f2ede4;
+  --color-bone-300: #e5ddd0;
+
+  /* Ink — primary text, header, footer */
+  --color-ink-50: #f4f6f8;
+  --color-ink-100: #e4e8ee;
+  --color-ink-200: #c8d0dc;
+  --color-ink-300: #9aa7ba;
+  --color-ink-400: #667795;
+  --color-ink-500: #47597a;
+  --color-ink-600: #364764;
+  --color-ink-700: #2a3752;
+  --color-ink-800: #1c2740;
+  --color-ink-900: #131c31;
+  --color-ink-950: #0a1120;
+
+  /* Copper — accent, CTAs, active state */
+  --color-copper-50: #fdf5f0;
+  --color-copper-100: #fae8dc;
+  --color-copper-200: #f4cdb4;
+  --color-copper-300: #eaa982;
+  --color-copper-400: #de7f4e;
+  --color-copper-500: #d0602c;
+  --color-copper-600: #b44b22;
+  --color-copper-700: #953a1f;
+  --color-copper-800: #78311f;
+  --color-copper-900: #622b1d;
+
+  /* Typography */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex), ui-monospace, SFMono-Regular, monospace;
+
+  /* Motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-bone-100);
+    color: var(--color-ink-900);
+  }
+
+  /* Keyboard focus should be obvious; pointer focus should not shout. */
+  :focus-visible {
+    outline: 2px solid var(--color-copper-500);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-copper-200);
+    color: var(--color-ink-950);
+  }
+}
+
+@layer components {
+  /*
+   * Full-bleed split sections put their text in a column that starts at the
+   * viewport edge, which leaves it misaligned with every max-w-7xl section
+   * above and below it. This pads the column so its content lands on the same
+   * vertical line as the header and the rest of the page, while the paired
+   * visual panel still bleeds off the opposite edge.
+   *
+   * 80rem is max-w-7xl; 2rem matches the container's lg:px-8.
+   */
+  .pad-container-start {
+    padding-inline-start: max(1rem, calc((100vw - 80rem) / 2 + 2rem));
+  }
+
+  @media (min-width: 640px) {
+    .pad-container-start {
+      padding-inline-start: max(1.5rem, calc((100vw - 80rem) / 2 + 2rem));
+    }
+  }
+
+  /* Slow drift for the vial field behind the compliance gate. */
+  @keyframes drift {
+    0%,
+    100% {
+      transform: translateY(0) rotate(var(--tilt, 0deg));
+    }
+    50% {
+      transform: translateY(-28px) rotate(calc(var(--tilt, 0deg) + 3deg));
+    }
+  }
+
+  .animate-drift {
+    animation: drift var(--drift-duration, 14s) ease-in-out infinite;
+    animation-delay: var(--drift-delay, 0s);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-drift {
+      animation: none;
+    }
+  }
+}
