@@ -80,6 +80,30 @@ detail page resolves every variation that way to build its size selector;
 listings skip it and show one line at the range minimum, since a card only
 needs a "from" price and resolving would cost a request per variation.
 
+### Why the cart is not WooCommerce's
+
+Carts stay in this app (see the scaffold below) rather than using the Store
+API's `/cart` endpoints, because guest cart sessions do not read back on this
+store. Measured against hbb-labs.com:
+
+- `POST /cart/add-item` succeeds — 201, and the response body shows the cart
+  accumulating.
+- Reading it back afterwards returns an empty cart every time: 0 of 6
+  attempts saw the item, using the token from the response, the token from
+  the initial `GET /cart`, and with the returned cookies replayed.
+- `GET /cart` reports an empty cart even when `/cart/items` has contents.
+- Only `woocommerce_items_in_cart` and `woocommerce_cart_hash` come back —
+  display hints. The `wp_woocommerce_session_*` cookie that would let
+  WooCommerce restore a guest session is never issued.
+
+Responses are `Cache-Control: no-store` and the CDN reports a bypass, so this
+is not a cached response. Wiring the cart to WooCommerce in this state would
+produce a storefront whose cart always looks empty.
+
+Worth retrying if the store's session handling changes — the endpoints and
+their shapes are as expected, and writes already work. What is missing is
+session persistence across requests.
+
 ### Catalog writes — `scripts/wc-admin.mjs`
 
 The storefront only ever reads, and needs no credentials. Writing to the
