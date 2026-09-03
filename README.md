@@ -79,6 +79,27 @@ cart), so variable products are collapsed to a single line at their minimum
 price rather than modelling each variation. Full variant selection would need
 the authenticated `wc/v3` REST API instead.
 
+### Catalog writes — `scripts/wc-admin.mjs`
+
+The storefront only ever reads, and needs no credentials. Writing to the
+catalog goes through the authenticated `wc/v3` admin API instead.
+
+Generate a key in wp-admin under **WooCommerce → Settings → Advanced → REST
+API**, with `Read/Write` permission. The consumer secret is shown once. Put
+both in `.env.local` — `.env*` is gitignored — and never in a query string,
+which would put them in access logs and `Referer` headers.
+
+```
+node --env-file=.env.local scripts/wc-admin.mjs check
+node --env-file=.env.local scripts/wc-admin.mjs create-test-product
+```
+
+`check` verifies the key reads and lists what's published; it deliberately
+does not probe write access, because the only way to test that is to attempt
+a write, and WordPress does not require a post title — an empty probe can
+leave a junk draft in a live store. `create-test-product` publishes one
+simple product exercising price scaling, sale pricing and category mapping.
+
 ## The two scaffolds
 
 ### Database — `src/lib/db/index.ts`
