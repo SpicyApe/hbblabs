@@ -17,11 +17,12 @@
 import type { Product, ProductVariant } from "@/data/products";
 
 /*
- * The catalog lives on the WordPress/WooCommerce install, which sits on its
- * own hostname: hbb-labs.com itself serves this storefront, so pointing at
- * the apex would make the app ask itself for its own catalog.
+ * The WordPress/WooCommerce install keeps the apex (hbb-labs.com); this
+ * storefront is served from the shop subdomain. Those two must stay
+ * distinct — pointing this at the host the app itself answers on would
+ * make it request its own catalog from itself.
  */
-const WC_URL = (process.env.WOOCOMMERCE_URL ?? "https://cms.hbb-labs.com").replace(/\/$/, "");
+const WC_URL = (process.env.WOOCOMMERCE_URL ?? "https://hbb-labs.com").replace(/\/$/, "");
 const STORE_API = `${WC_URL}/wp-json/wc/store/v1`;
 
 interface WcPriceRange {

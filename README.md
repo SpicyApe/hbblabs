@@ -63,9 +63,10 @@ for fixed marketing content on the homepage (hero art, the subscription-box
 preview) and as a fallback tint source in `src/components/vial.tsx`.
 
 Point `WOOCOMMERCE_URL` (see `.env.example`) at the WooCommerce site to read
-from; it defaults to `https://cms.hbb-labs.com`. That has to be a *different*
-host to the storefront — `hbb-labs.com` serves this app, so pointing the
-catalog at the apex would make it ask itself for its own products.
+from; it defaults to `https://hbb-labs.com`. That has to be a *different*
+host to the storefront itself — WordPress keeps `hbb-labs.com` and this app
+is served from `shop.hbb-labs.com`. Pointing the catalog at the host the app
+answers on would make it request its own products from itself.
 
 The store currently has no published products, so the live catalog pages
 render empty until products are added in wp-admin. Catalog reads fail soft:
