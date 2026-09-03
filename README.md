@@ -43,15 +43,40 @@ src/
     actions/cart.ts           cart server actions
   components/                 header, footer, cards, buy box, vial artwork
   data/
-    products.ts               50-compound seed catalog
+    products.ts               50-compound seed catalog (marketing copy only — see below)
     pages.ts                  informational page copy
   lib/
     brand.ts                  ALL brand identity — name, nav, thresholds
     db/                       DATABASE SCAFFOLD
     payments/                 PAYMENT SCAFFOLD
+    woocommerce.ts             WooCommerce Store API client (live product catalog)
     session.ts                cart cookie helpers
   middleware.ts               gate redirect + region routing
 ```
+
+## Product catalog
+
+Live product data (`store/`, `products/[handle]/`, featured/related lists) is
+read from WooCommerce's public Store API — see `src/lib/woocommerce.ts` — not
+from `src/data/products.ts`. That file's 50-compound catalog is now only used
+for fixed marketing content on the homepage (hero art, the subscription-box
+preview) and as a fallback tint source in `src/components/vial.tsx`.
+
+Point `WOOCOMMERCE_URL` (see `.env.example`) at the WooCommerce site to read
+from; it defaults to `https://cms.hbb-labs.com`. That has to be a *different*
+host to the storefront — `hbb-labs.com` serves this app, so pointing the
+catalog at the apex would make it ask itself for its own products.
+
+The store currently has no published products, so the live catalog pages
+render empty until products are added in wp-admin. Catalog reads fail soft:
+if WooCommerce is unreachable the pages render as an empty catalog and log
+the error, rather than returning a 500.
+
+**Known gap:** the Store API doesn't expose per-variation pricing on a plain
+GET (Woo's own frontend only resolves that once an item is added to the
+cart), so variable products are collapsed to a single line at their minimum
+price rather than modelling each variation. Full variant selection would need
+the authenticated `wc/v3` REST API instead.
 
 ## The two scaffolds
 

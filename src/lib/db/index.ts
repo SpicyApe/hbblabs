@@ -2,20 +2,19 @@
  * DATABASE SCAFFOLD
  * =================
  *
- * Every read and write the storefront performs goes through this module. Today
- * it is backed by the static catalog in `src/data/products.ts` plus an
- * in-process Map for carts and orders. Nothing persists across a server restart,
- * and nothing here is safe for more than one server instance.
+ * Every read and write the storefront performs goes through this module.
+ * Product catalog reads are proxied live to WooCommerce's Store API (see
+ * `src/lib/woocommerce.ts`) rather than a database. Carts and orders are
+ * still an in-process Map: nothing persists across a server restart, and
+ * nothing here is safe for more than one server instance.
  *
- * To make it real, keep the exported function signatures and reimplement the
- * bodies against your datastore (Postgres + Drizzle/Prisma, Medusa, whatever).
- * No component imports the catalog directly, so the UI does not change.
+ * To make carts/orders real, keep the exported function signatures and
+ * reimplement the bodies against your datastore (Postgres + Drizzle/Prisma,
+ * Medusa, whatever). No component imports the catalog directly, so the UI
+ * does not change.
  *
  * Suggested schema when you get there:
  *
- *   products      (id, handle, name, category, blurb, description, form,
- *                  sequence, cas, storage, featured, created_at)
- *   variants      (id, product_id, label, price, compare_at, inventory_qty)
  *   carts         (id, region, created_at, updated_at)
  *   cart_items    (id, cart_id, variant_id, quantity)
  *   orders        (id, cart_id, email, status, subtotal, shipping, total,
@@ -24,15 +23,15 @@
  *   coa_documents (id, product_id, batch_code, assay_date, file_url)
  */
 
-import {
-  products,
-  productsByHandle,
-  priceFrom,
-  type Product,
-  type ProductCategory,
-  type ProductVariant,
-} from "@/data/products";
+import type { Product, ProductCategory, ProductVariant } from "@/data/products";
 import { brand } from "@/lib/brand";
+import {
+  listWcProducts,
+  getWcProductBySlug,
+  getWcFeaturedProducts,
+  getWcRelatedProducts,
+  getWcProductAndVariant,
+} from "@/lib/woocommerce";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,65 +105,26 @@ export async function listProducts(options?: {
   search?: string;
   sort?: "featured" | "price-asc" | "price-desc" | "name";
 }): Promise<Product[]> {
-  let result = [...products];
-
-  if (options?.category) {
-    result = result.filter((p) => p.category === options.category);
-  }
-
-  if (options?.search) {
-    const needle = options.search.toLowerCase().trim();
-    if (needle) {
-      result = result.filter((p) =>
-        [p.name, p.blurb, ...p.aliases, p.cas ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(needle),
-      );
-    }
-  }
-
-  switch (options?.sort) {
-    case "price-asc":
-      result.sort((a, b) => priceFrom(a) - priceFrom(b));
-      break;
-    case "price-desc":
-      result.sort((a, b) => priceFrom(b) - priceFrom(a));
-      break;
-    case "name":
-      result.sort((a, b) => a.name.localeCompare(b.name));
-      break;
-    default:
-      // Featured first, catalog order otherwise.
-      result.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)));
-  }
-
-  return result;
+  return listWcProducts(options);
 }
 
 export async function getProduct(handle: string): Promise<Product | null> {
-  return productsByHandle.get(handle) ?? null;
+  return getWcProductBySlug(handle);
 }
 
 export async function getFeaturedProducts(limit = 6): Promise<Product[]> {
-  return products.filter((p) => p.featured).slice(0, limit);
+  return getWcFeaturedProducts(limit);
 }
 
 /** Same category, excluding the product itself. */
 export async function getRelatedProducts(handle: string, limit = 4): Promise<Product[]> {
-  const product = productsByHandle.get(handle);
-  if (!product) return [];
-  return products
-    .filter((p) => p.category === product.category && p.handle !== handle)
-    .slice(0, limit);
+  return getWcRelatedProducts(handle, limit);
 }
 
-function findVariant(variantId: string): { product: Product; variant: ProductVariant } | null {
-  for (const product of products) {
-    const variant = product.variants.find((candidate) => candidate.id === variantId);
-    if (variant) return { product, variant };
-  }
-  return null;
+async function findVariant(
+  variantId: string,
+): Promise<{ product: Product; variant: ProductVariant } | null> {
+  return getWcProductAndVariant(variantId);
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +146,7 @@ export async function addToCart(
   variantId: string,
   quantity = 1,
 ): Promise<Cart> {
-  if (!findVariant(variantId)) {
+  if (!(await findVariant(variantId))) {
     throw new Error(`Unknown variant: ${variantId}`);
   }
 
@@ -246,7 +206,7 @@ export async function resolveCart(cartId: string): Promise<{
   const lines: ResolvedCartLine[] = [];
 
   for (const line of cart?.lines ?? []) {
-    const match = findVariant(line.variantId);
+    const match = await findVariant(line.variantId);
     if (!match) continue;
     lines.push({
       variantId: line.variantId,

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listProducts } from "@/lib/db";
-import { categoryLabels, type ProductCategory } from "@/data/products";
+import { listWcCategories } from "@/lib/woocommerce";
 import { brand } from "@/lib/brand";
 import { ProductCard } from "@/components/product-card";
 
@@ -29,17 +29,13 @@ export default async function StorePage({
   const { region } = await params;
   const filters = await searchParams;
 
-  const isCategory = (value: string | undefined): value is ProductCategory =>
-    Boolean(value) && value! in categoryLabels;
-
-  const activeCategory = isCategory(filters.category) ? filters.category : undefined;
+  const activeCategory = filters.category || undefined;
   const sort = SORTS.find((option) => option.value === filters.sort)?.value ?? "featured";
 
-  const results = await listProducts({
-    category: activeCategory,
-    search: filters.q,
-    sort,
-  });
+  const [results, categories] = await Promise.all([
+    listProducts({ category: activeCategory, search: filters.q, sort }),
+    listWcCategories(),
+  ]);
 
   /** Builds a store URL that keeps the other filters intact. */
   const linkWith = (patch: Record<string, string | undefined>) => {
@@ -114,17 +110,17 @@ export default async function StorePage({
         >
           All
         </Link>
-        {(Object.keys(categoryLabels) as ProductCategory[]).map((key) => (
+        {categories.map((cat) => (
           <Link
-            key={key}
-            href={linkWith({ category: key })}
+            key={cat.slug}
+            href={linkWith({ category: cat.slug })}
             className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${
-              activeCategory === key
+              activeCategory === cat.slug
                 ? "bg-ink-950 text-white"
                 : "border border-ink-200 text-ink-600 hover:border-ink-400"
             }`}
           >
-            {categoryLabels[key]}
+            {cat.name}
           </Link>
         ))}
       </nav>

@@ -8,15 +8,12 @@
  * Prices are in minor units (USD cents) to keep money out of floating point.
  */
 
-export type ProductCategory =
-  | "repair"
-  | "metabolic"
-  | "longevity"
-  | "cognitive"
-  | "cosmetic"
-  | "blend"
-  | "spray"
-  | "accessory";
+/**
+ * Seed-catalog categories are a closed set; WooCommerce-sourced products (see
+ * `src/lib/woocommerce.ts`) carry whatever category slug the store defines,
+ * so this is a plain string with the seed set as known values only.
+ */
+export type ProductCategory = string;
 
 export interface ProductVariant {
   /** Stable id, used as the cart line key. */
@@ -38,7 +35,8 @@ export interface Product {
   blurb: string;
   /** Two or three sentences, used on the detail page. */
   description: string;
-  form: "Lyophilized powder" | "Research solution" | "Bacteriostatic solution";
+  /** Empty string for WooCommerce-sourced products that don't carry this. */
+  form: string;
   sequence?: string;
   cas?: string;
   storage: string;
@@ -694,7 +692,7 @@ export const products: Product[] = [
 
 // ---- Derived lookups --------------------------------------------------------
 
-export const categoryLabels: Record<ProductCategory, string> = {
+export const categoryLabels: Record<string, string> = {
   repair: "Repair & Recovery",
   metabolic: "Metabolic",
   longevity: "Longevity",
@@ -704,6 +702,19 @@ export const categoryLabels: Record<ProductCategory, string> = {
   spray: "Research Solutions",
   accessory: "Accessories",
 };
+
+/**
+ * Display label for a category slug. Falls back to title-casing the slug for
+ * categories that don't come from the seed catalog (e.g. anything defined in
+ * WooCommerce), since those aren't known ahead of time.
+ */
+export const categoryLabel = (category: string): string =>
+  categoryLabels[category] ??
+  category
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
 
 export const productsByHandle = new Map(products.map((p) => [p.handle, p]));
 

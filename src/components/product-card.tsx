@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { brand } from "@/lib/brand";
-import { categoryLabels, formatPrice, priceFrom, type Product } from "@/data/products";
+import { categoryLabel, formatPrice, priceFrom, type Product } from "@/data/products";
 import { Vial, tintFor } from "@/components/vial";
 import { AddToCart } from "@/components/add-to-cart";
 
@@ -60,7 +60,7 @@ export function ProductCard({ product }: { product: Product }) {
             {product.name}
           </Link>
         </h3>
-        <p className="mt-0.5 text-xs text-ink-400">{categoryLabels[product.category]}</p>
+        <p className="mt-0.5 text-xs text-ink-400">{categoryLabel(product.category)}</p>
 
         <p className="mt-3 flex items-baseline gap-1.5">
           <span className="text-[11px] text-ink-400">From</span>

@@ -2,16 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProduct, getRelatedProducts } from "@/lib/db";
-import { products, categoryLabels, formatPrice, priceFrom } from "@/data/products";
+import { categoryLabel, formatPrice, priceFrom } from "@/data/products";
 import { brand } from "@/lib/brand";
 import { Vial, tintFor } from "@/components/vial";
 import { BuyBox } from "@/components/buy-box";
 import { ProductCard } from "@/components/product-card";
 import { displayPurity } from "@/components/product-card";
-
-export function generateStaticParams() {
-  return products.map((product) => ({ region: brand.defaultRegion, handle: product.handle }));
-}
 
 export async function generateMetadata({
   params,
@@ -54,7 +50,7 @@ export default async function ProductPage({
     "@type": "Product",
     name: product.name,
     description: product.blurb,
-    category: categoryLabels[product.category],
+    category: categoryLabel(product.category),
     brand: { "@type": "Brand", name: brand.name },
     offers: {
       "@type": "AggregateOffer",
@@ -83,7 +79,7 @@ export default async function ProductPage({
           href={`/${region}/store?category=${product.category}`}
           className="hover:text-ink-700"
         >
-          {categoryLabels[product.category]}
+          {categoryLabel(product.category)}
         </Link>
       </nav>
 
@@ -123,7 +119,7 @@ export default async function ProductPage({
         {/* Buy box */}
         <div className="lg:pl-4">
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-400">
-            {categoryLabels[product.category]}
+            {categoryLabel(product.category)}
           </p>
           <h1 className="mt-1.5 text-3xl font-bold tracking-tight text-ink-950 sm:text-4xl">
             {product.name}
@@ -152,10 +148,10 @@ export default async function ProductPage({
           <dl className="mt-8 divide-y divide-ink-100 border-t border-ink-100 text-sm">
             {[
               ["Purity", `${displayPurity(product.handle)}% by HPLC`],
-              ["Form", product.form],
+              product.form ? ["Form", product.form] : null,
               product.sequence ? ["Sequence", product.sequence] : null,
               product.cas ? ["CAS", product.cas] : null,
-              ["Storage", product.storage],
+              product.storage ? ["Storage", product.storage] : null,
             ]
               .filter((row): row is [string, string] => row !== null)
               .map(([label, value]) => (

@@ -12,7 +12,7 @@ import { COMPLIANCE_COOKIE } from "@/lib/constants";
  * affirmed the statements, which is what the research-use-only posture
  * requires. It is not an access control and should not be treated as one.
  */
-export default function proxy(request: NextRequest) {
+export default function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   // The gate itself, and the legal pages it links to, must stay reachable.
