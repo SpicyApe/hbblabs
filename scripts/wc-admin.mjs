@@ -18,8 +18,13 @@
  * Usage:
  *   node --env-file=.env.local scripts/wc-admin.mjs check
  *   node --env-file=.env.local scripts/wc-admin.mjs create-test-product
+ *   node --env-file=.env.local scripts/wc-admin.mjs push-product glp-3
  *
- * `check` needs only Read permission. `create-test-product` needs Write.
+ * `check` needs only Read permission; the others need Write.
+ *
+ * push-product reads src/data/products.ts directly (Node strips the types),
+ * so the seed catalog stays the single source of truth rather than product
+ * data being restated here.
  */
 
 const BASE = (process.env.WOOCOMMERCE_URL ?? "https://hbb-labs.com").replace(/\/$/, "");
@@ -97,6 +102,113 @@ async function check() {
   console.log("\nRead access confirmed. Write access is exercised by create-test-product.");
 }
 
+/**
+ * Resolves a category name to its id, creating it if absent.
+ *
+ * Products reference categories by id. Passing `{ name }` on the product
+ * payload is silently ignored, which is how the first test product ended up
+ * uncategorised.
+ */
+async function resolveCategory(name) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  const existing = await wc(`/products/categories?slug=${encodeURIComponent(slug)}`);
+  if (existing.length) return existing[0].id;
+
+  const created = await wc("/products/categories", { method: "POST", body: { name, slug } });
+  console.log(`  created category "${name}" (#${created.id})`);
+  return created.id;
+}
+
+/** Minor units (the catalog's storage format) to the decimal string the API wants. */
+const toDecimal = (cents) => (cents / 100).toFixed(2);
+
+/**
+ * Pushes one product from src/data/products.ts into WooCommerce.
+ *
+ * Multi-variant products become WooCommerce variable products: one "Size"
+ * attribute whose options are the variant labels, plus a variation per
+ * label carrying that variant's price.
+ */
+async function pushProduct() {
+  requireCredentials();
+
+  const handle = process.argv[3];
+  if (!handle) {
+    console.error("Usage: push-product <handle>   e.g. push-product glp-3");
+    process.exitCode = 1;
+    return;
+  }
+
+  const { productsByHandle } = await import("../src/data/products.ts");
+  const product = productsByHandle.get(handle);
+  if (!product) {
+    console.error(`No product with handle "${handle}" in src/data/products.ts`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const existing = await wc(`/products?slug=${encodeURIComponent(handle)}`);
+  if (existing.length) {
+    console.log(`Already in WooCommerce: #${existing[0].id} "${existing[0].name}" — skipping.`);
+    console.log("Delete it in wp-admin first if you want to re-push.");
+    return;
+  }
+
+  console.log(`Pushing "${product.name}" (${handle})…`);
+  const categoryId = await resolveCategory(product.category);
+
+  const isVariable = product.variants.length > 1;
+  const payload = {
+    name: product.name,
+    slug: product.handle,
+    type: isVariable ? "variable" : "simple",
+    status: "publish",
+    short_description: product.blurb,
+    description: product.description,
+    categories: [{ id: categoryId }],
+    ...(isVariable
+      ? {
+          attributes: [
+            {
+              name: "Size",
+              position: 0,
+              visible: true,
+              variation: true,
+              options: product.variants.map((v) => v.label),
+            },
+          ],
+        }
+      : {
+          regular_price: toDecimal(product.variants[0].price),
+        }),
+  };
+
+  const created = await wc("/products", { method: "POST", body: payload });
+  console.log(`✓ Created #${created.id} (${created.type}, ${created.status})`);
+
+  if (isVariable) {
+    const result = await wc(`/products/${created.id}/variations/batch`, {
+      method: "POST",
+      body: {
+        create: product.variants.map((v) => ({
+          regular_price: toDecimal(v.price),
+          attributes: [{ name: "Size", option: v.label }],
+          manage_stock: false,
+          stock_status: v.inStock ? "instock" : "outofstock",
+        })),
+      },
+    });
+    for (const v of result.create ?? []) {
+      const size = v.attributes?.[0]?.option ?? "?";
+      console.log(`  · variation #${v.id}  ${size}  $${v.regular_price}`);
+    }
+  }
+
+  console.log(`\n  admin: ${BASE}/wp-admin/post.php?post=${created.id}&action=edit`);
+  console.log("  Storefront picks it up within ~60s (the Store API cache window).");
+}
+
 async function createTestProduct() {
   requireCredentials();
 
@@ -109,8 +221,9 @@ async function createTestProduct() {
     short_description: "A published test product used to verify the storefront mapping.",
     description:
       "Created by scripts/wc-admin.mjs to confirm the WooCommerce Store API feed reaches the storefront. Exercises price scaling, sale pricing and category mapping. Safe to delete.",
-    categories: [{ name: "Test" }],
   };
+
+  product.categories = [{ id: await resolveCategory("Test") }];
 
   const created = await wc("/products", { method: "POST", body: product });
   console.log(`✓ Created #${created.id} "${created.name}" (${created.status})`);
@@ -120,7 +233,11 @@ async function createTestProduct() {
   console.log(`\nStorefront picks it up within ~60s (the Store API cache window).`);
 }
 
-const commands = { check, "create-test-product": createTestProduct };
+const commands = {
+  check,
+  "create-test-product": createTestProduct,
+  "push-product": pushProduct,
+};
 const command = process.argv[2];
 
 if (!commands[command]) {

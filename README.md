@@ -73,11 +73,12 @@ render empty until products are added in wp-admin. Catalog reads fail soft:
 if WooCommerce is unreachable the pages render as an empty catalog and log
 the error, rather than returning a 500.
 
-**Known gap:** the Store API doesn't expose per-variation pricing on a plain
-GET (Woo's own frontend only resolves that once an item is added to the
-cart), so variable products are collapsed to a single line at their minimum
-price rather than modelling each variation. Full variant selection would need
-the authenticated `wc/v3` REST API instead.
+A variable product's `variations` array carries ids and attributes but no
+prices. Each variation is however a product in its own right, so its price
+comes from fetching `/products/{variation_id}` — public, no credentials. The
+detail page resolves every variation that way to build its size selector;
+listings skip it and show one line at the range minimum, since a card only
+needs a "from" price and resolving would cost a request per variation.
 
 ### Catalog writes — `scripts/wc-admin.mjs`
 
@@ -99,6 +100,22 @@ does not probe write access, because the only way to test that is to attempt
 a write, and WordPress does not require a post title — an empty probe can
 leave a junk draft in a live store. `create-test-product` publishes one
 simple product exercising price scaling, sale pricing and category mapping.
+
+```
+node --env-file=.env.local scripts/wc-admin.mjs push-product glp-3
+```
+
+`push-product` publishes a product from `src/data/products.ts` — Node strips
+the types, so the seed catalog stays the single source of truth instead of
+product data being restated in the script. Multi-variant products become
+WooCommerce variable products: a "Size" attribute whose options are the
+variant labels, plus a variation per label carrying its price. It skips
+products already present rather than duplicating them.
+
+Categories are resolved to ids, creating them when absent. Products
+reference categories by id and a `{ name }` on the product payload is
+silently dropped, which is how the first test product ended up
+uncategorised.
 
 ## The two scaffolds
 

@@ -52,6 +52,11 @@ interface WcCategory {
   link: string;
 }
 
+interface WcVariationRef {
+  id: number;
+  attributes: { name: string; value: string }[];
+}
+
 interface WcProduct {
   id: number;
   name: string;
@@ -65,6 +70,10 @@ interface WcProduct {
   type: string;
   has_options: boolean;
   is_in_stock: boolean;
+  /** Present on variable products: the ids and attributes of each variation. */
+  variations?: WcVariationRef[];
+  /** Present on a variation fetched directly, e.g. "Size: 4mg". */
+  variation?: string;
 }
 
 function buildUrl(
@@ -137,34 +146,73 @@ function toMinorUnits(amount: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function toVariants(product: WcProduct): ProductVariant[] {
-  if (product.has_options) {
-    const min = product.prices.price_range?.min_amount ?? product.prices.price;
-    return [
-      {
-        id: String(product.id),
-        label: "From",
-        price: toMinorUnits(min),
-        inStock: product.is_in_stock,
-      },
-    ];
-  }
-
+function simpleVariant(product: WcProduct, label: string, amount?: string): ProductVariant {
   const onSale =
     product.prices.sale_price && product.prices.sale_price !== product.prices.regular_price;
 
-  return [
-    {
-      id: String(product.id),
-      label: "Standard",
-      price: toMinorUnits(product.prices.price),
-      compareAt: onSale ? toMinorUnits(product.prices.regular_price) : undefined,
-      inStock: product.is_in_stock,
-    },
-  ];
+  return {
+    id: String(product.id),
+    label,
+    price: toMinorUnits(amount ?? product.prices.price),
+    compareAt: onSale ? toMinorUnits(product.prices.regular_price) : undefined,
+    inStock: product.is_in_stock,
+  };
 }
 
-function mapWcProduct(product: WcProduct): Product {
+/**
+ * Builds the purchasable lines for a product.
+ *
+ * A variable product lists its variations as ids and attributes only — no
+ * prices. Each variation is however a product in its own right, so its
+ * price comes from fetching it directly. That is one request per variation,
+ * so callers that only need a "from" price (cards, listings) pass
+ * `withVariations: false` and get a single line at the range minimum.
+ */
+async function toVariants(
+  product: WcProduct,
+  withVariations: boolean,
+): Promise<ProductVariant[]> {
+  if (!product.has_options) {
+    return [simpleVariant(product, "Standard")];
+  }
+
+  const rangeMinimum = () => [
+    simpleVariant(
+      product,
+      "From",
+      product.prices.price_range?.min_amount ?? product.prices.price,
+    ),
+  ];
+
+  if (!withVariations || !product.variations?.length) return rangeMinimum();
+
+  const details = await Promise.all(
+    product.variations.map((ref) => wcFetchOptional<WcProduct>(`/products/${ref.id}`)),
+  );
+
+  const variants = product.variations
+    .map((ref, index): ProductVariant | null => {
+      const detail = details[index];
+      if (!detail) return null;
+
+      const onSale =
+        detail.prices.sale_price && detail.prices.sale_price !== detail.prices.regular_price;
+
+      return {
+        id: String(ref.id),
+        label: ref.attributes.map((a) => a.value).join(" / ") || detail.name,
+        price: toMinorUnits(detail.prices.price),
+        compareAt: onSale ? toMinorUnits(detail.prices.regular_price) : undefined,
+        inStock: detail.is_in_stock,
+      };
+    })
+    .filter((v): v is ProductVariant => v !== null);
+
+  // Every variation lookup failed — better a "from" price than an unbuyable product.
+  return variants.length ? variants : rangeMinimum();
+}
+
+async function mapWcProduct(product: WcProduct, withVariations = false): Promise<Product> {
   const description = stripHtml(product.description);
   const blurb = stripHtml(product.short_description) || description.slice(0, 140);
 
@@ -177,7 +225,7 @@ function mapWcProduct(product: WcProduct): Product {
     description,
     form: "",
     storage: "",
-    variants: toVariants(product),
+    variants: await toVariants(product, withVariations),
     featured: false,
   };
 }
@@ -196,27 +244,32 @@ export async function listWcProducts(options?: {
   };
   const order = options?.sort === "price-desc" ? "desc" : "asc";
 
+  /*
+   * "featured" is a sort, not a filter: it means featured first, then the
+   * rest of the catalog. Passing WooCommerce featured=true here instead
+   * hides every product that isn't flagged, emptying the store page.
+   */
   const raw = await wcFetch<WcProduct[]>("/products", [], {
     category: options?.category,
     search: options?.search,
-    featured: options?.sort === "featured" ? true : undefined,
     orderby: options?.sort ? sortParams[options.sort] : undefined,
     order: options?.sort ? order : undefined,
     per_page: options?.perPage ?? 100,
   });
 
-  return raw.map(mapWcProduct);
+  return Promise.all(raw.map((p) => mapWcProduct(p)));
 }
 
 export async function getWcProductBySlug(slug: string): Promise<Product | null> {
   const raw = await wcFetch<WcProduct[]>("/products", [], { slug });
   const match = raw[0];
-  return match ? mapWcProduct(match) : null;
+  // The detail page shows a size selector, so resolve every variation here.
+  return match ? mapWcProduct(match, true) : null;
 }
 
 export async function getWcFeaturedProducts(limit = 6): Promise<Product[]> {
   const raw = await wcFetch<WcProduct[]>("/products", [], { featured: true, per_page: limit });
-  return raw.map(mapWcProduct);
+  return Promise.all(raw.map((p) => mapWcProduct(p)));
 }
 
 export async function getWcRelatedProducts(handle: string, limit = 4): Promise<Product[]> {
@@ -228,16 +281,39 @@ export async function getWcRelatedProducts(handle: string, limit = 4): Promise<P
     per_page: limit + 1,
   });
 
-  return raw.map(mapWcProduct).filter((p) => p.handle !== handle).slice(0, limit);
+  const mapped = await Promise.all(raw.map((p) => mapWcProduct(p)));
+  return mapped.filter((p) => p.handle !== handle).slice(0, limit);
 }
 
-/** Looks up a product/variant pair by the variant id used as the cart line key. */
+/**
+ * Looks up a product/variant pair by the variant id used as the cart line key.
+ *
+ * That id is a variation id for variable products and a product id for
+ * simple ones. Both are fetchable at the same path — a variation comes back
+ * as a product of type "variation" carrying its own price and its label in
+ * the `variation` field ("Size: 4mg").
+ */
 export async function getWcProductAndVariant(
   variantId: string,
 ): Promise<{ product: Product; variant: ProductVariant } | null> {
   const raw = await wcFetchOptional<WcProduct>(`/products/${variantId}`);
   if (!raw) return null;
-  const product = mapWcProduct(raw);
+
+  const product = await mapWcProduct(raw);
+
+  if (raw.type === "variation") {
+    const label = (raw.variation ?? "")
+      .split(",")
+      .map((part) => part.split(":").pop()?.trim() ?? "")
+      .filter(Boolean)
+      .join(" / ");
+
+    return {
+      product,
+      variant: { ...simpleVariant(raw, label || "Standard"), id: String(raw.id) },
+    };
+  }
+
   return { product, variant: product.variants[0] };
 }
 
