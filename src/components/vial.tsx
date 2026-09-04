@@ -39,6 +39,19 @@ const TINT_BY_HANDLE = new Map(
   products.map((product, index) => [product.handle, TINTS[index % TINTS.length]]),
 );
 
+/**
+ * What the drawn label reads, when that differs from the product name.
+ *
+ * A vial is labelled with what is in it, which is not always what the
+ * product is sold as: "GLP-3 (RT)" is the listing, retatrutide is the
+ * compound. Overriding here rather than renaming the product keeps the
+ * change to the artwork — the title, breadcrumb, cart and metadata all
+ * still read as the product is named.
+ */
+const LABEL_OVERRIDES: Record<string, string> = {
+  "glp-3": "Retatrutide",
+};
+
 /** FNV-1a — only reached for handles that aren't in the catalog. */
 function hash(input: string): number {
   let h = 0x811c9dc5;
@@ -63,16 +76,17 @@ interface VialProps {
 
 export function Vial({ handle, name, shape = "vial", className }: VialProps) {
   const tint = tintFor(handle);
+  const label = LABEL_OVERRIDES[handle] ?? name;
 
   // Long names need to shrink to stay inside the label.
-  const labelSize = name.length > 22 ? 9 : name.length > 14 ? 11 : 13;
+  const labelSize = label.length > 22 ? 9 : label.length > 14 ? 11 : 13;
 
   return (
     <svg
       viewBox="0 0 120 200"
       className={className}
       role="img"
-      aria-label={`${name} — illustrative vial, not a photograph`}
+      aria-label={`${label} — illustrative vial, not a photograph`}
     >
       <defs>
         {/* Glass: bright edge, body shading, specular highlight on the left. */}
@@ -137,7 +151,7 @@ export function Vial({ handle, name, shape = "vial", className }: VialProps) {
           fill={tint.label}
           fontFamily="var(--font-sans), sans-serif"
         >
-          {name}
+          {label}
         </text>
         <text
           y="13"
