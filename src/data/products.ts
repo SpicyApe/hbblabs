@@ -1,17 +1,18 @@
 /**
  * Seed catalog.
  *
- * SCAFFOLD: a static in-repo catalog so the storefront renders without a
- * database. `src/lib/db` reads from here today; swapping in a real datastore
- * means reimplementing that module, not touching the UI.
+ * The storefront no longer reads this: the catalog lives in Medusa, and
+ * `scripts/export-catalog.mjs` loads this file into it. It remains the
+ * source those products were seeded from, and supplies the homepage's fixed
+ * marketing content and the vial tints.
  *
  * Prices are in minor units (USD cents) to keep money out of floating point.
  */
 
 /**
- * Seed-catalog categories are a closed set; WooCommerce-sourced products (see
- * `src/lib/woocommerce.ts`) carry whatever category slug the store defines,
- * so this is a plain string with the seed set as known values only.
+ * Categories are open-ended: products come from Medusa (see
+ * `src/lib/medusa.ts`) and carry whatever category handle it defines. The
+ * seed set below is a set of known values, not the permitted ones.
  */
 export type ProductCategory = string;
 
@@ -35,7 +36,7 @@ export interface Product {
   blurb: string;
   /** Two or three sentences, used on the detail page. */
   description: string;
-  /** Empty string for WooCommerce-sourced products that don't carry this. */
+  /** Empty when the backend carries no value for it. */
   form: string;
   sequence?: string;
   cas?: string;

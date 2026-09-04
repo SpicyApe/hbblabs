@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listProducts } from "@/lib/db";
-import { listWcCategories } from "@/lib/woocommerce";
+import { listMedusaCategories } from "@/lib/medusa";
 import { brand } from "@/lib/brand";
 import { ProductCard } from "@/components/product-card";
 
@@ -34,7 +34,7 @@ export default async function StorePage({
 
   const [results, categories] = await Promise.all([
     listProducts({ category: activeCategory, search: filters.q, sort }),
-    listWcCategories(),
+    listMedusaCategories(),
   ]);
 
   /** Builds a store URL that keeps the other filters intact. */

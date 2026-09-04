@@ -3,35 +3,28 @@
  * =================
  *
  * Every read and write the storefront performs goes through this module.
- * Product catalog reads are proxied live to WooCommerce's Store API (see
- * `src/lib/woocommerce.ts`) rather than a database. Carts and orders are
- * still an in-process Map: nothing persists across a server restart, and
- * nothing here is safe for more than one server instance.
+ * The catalog and carts both come from Medusa (see `src/lib/medusa.ts`), so
+ * carts are real: they survive a restart and are shared across instances.
  *
- * To make carts/orders real, keep the exported function signatures and
- * reimplement the bodies against your datastore (Postgres + Drizzle/Prisma,
- * Medusa, whatever). No component imports the catalog directly, so the UI
- * does not change.
- *
- * Suggested schema when you get there:
- *
- *   carts         (id, region, created_at, updated_at)
- *   cart_items    (id, cart_id, variant_id, quantity)
- *   orders        (id, cart_id, email, status, subtotal, shipping, total,
- *                  payment_intent_id, placed_at)
- *   order_items   (id, order_id, variant_id, quantity, unit_price)
- *   coa_documents (id, product_id, batch_code, assay_date, file_url)
+ * ORDERS are the remaining scaffold — an in-process Map. They do not
+ * persist, and they are not the orders Medusa knows about. Medusa's
+ * /store/carts/:id/complete turns a cart into a genuine order; wiring
+ * checkout to it, alongside a payment provider that moves money, is what
+ * makes this real.
  */
 
 import type { Product, ProductCategory, ProductVariant } from "@/data/products";
 import { brand } from "@/lib/brand";
 import {
-  listWcProducts,
-  getWcProductBySlug,
-  getWcFeaturedProducts,
-  getWcRelatedProducts,
-  getWcProductAndVariant,
-} from "@/lib/woocommerce";
+  listMedusaProducts,
+  getMedusaProduct,
+  getMedusaFeatured,
+  getMedusaRelated,
+  createMedusaCart,
+  getMedusaCart,
+  medusaAddItem,
+  medusaSetQuantity,
+} from "@/lib/medusa";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,11 +79,9 @@ export interface Order {
  * every edit. A real datastore makes this hack unnecessary.
  */
 const stores = globalThis as unknown as {
-  __hercules_carts?: Map<string, Cart>;
   __hercules_orders?: Map<string, Order>;
 };
 
-const carts = (stores.__hercules_carts ??= new Map<string, Cart>());
 const orders = (stores.__hercules_orders ??= new Map<string, Order>());
 
 const newId = (prefix: string) =>
@@ -105,72 +96,61 @@ export async function listProducts(options?: {
   search?: string;
   sort?: "featured" | "price-asc" | "price-desc" | "name";
 }): Promise<Product[]> {
-  return listWcProducts(options);
+  return listMedusaProducts(options);
 }
 
 export async function getProduct(handle: string): Promise<Product | null> {
-  return getWcProductBySlug(handle);
+  return getMedusaProduct(handle);
 }
 
 export async function getFeaturedProducts(limit = 6): Promise<Product[]> {
-  return getWcFeaturedProducts(limit);
+  return getMedusaFeatured(limit);
 }
 
 /** Same category, excluding the product itself. */
 export async function getRelatedProducts(handle: string, limit = 4): Promise<Product[]> {
-  return getWcRelatedProducts(handle, limit);
-}
-
-async function findVariant(
-  variantId: string,
-): Promise<{ product: Product; variant: ProductVariant } | null> {
-  return getWcProductAndVariant(variantId);
+  return getMedusaRelated(handle, limit);
 }
 
 // ---------------------------------------------------------------------------
 // Cart
 // ---------------------------------------------------------------------------
 
+/*
+ * The cart id is a Medusa cart id. Carts live in Medusa, so they survive a
+ * restart and are shared across instances — the thing neither the in-memory
+ * scaffold nor WooCommerce's headless cart could manage.
+ */
 export async function createCart(): Promise<Cart> {
-  const cart: Cart = { id: newId("cart"), lines: [], updatedAt: Date.now() };
-  carts.set(cart.id, cart);
-  return cart;
+  const id = await createMedusaCart();
+  return { id: id ?? newId("cart"), lines: [], updatedAt: Date.now() };
 }
 
 export async function getCart(cartId: string): Promise<Cart | null> {
-  return carts.get(cartId) ?? null;
+  const cart = await getMedusaCart(cartId);
+  if (!cart) return null;
+
+  return {
+    id: cart.id,
+    lines: cart.items.map((item) => ({
+      variantId: item.variant_id,
+      quantity: item.quantity,
+    })),
+    updatedAt: Date.now(),
+  };
 }
 
+/*
+ * No existence check first: Medusa validates the variant and is the
+ * authority on whether it is purchasable. Checking here would cost a
+ * request and still race against the store.
+ */
 export async function addToCart(
   cartId: string,
   variantId: string,
   quantity = 1,
-): Promise<Cart> {
-  if (!(await findVariant(variantId))) {
-    throw new Error(`Unknown variant: ${variantId}`);
-  }
-
-  /*
-   * Materialize under the id we were given rather than minting a new one.
-   * The caller already committed this id to a cookie, so allocating a
-   * different one here drops the item into a cart nothing points at — which is
-   * what happens to every add after a server restart or a cache eviction.
-   */
-  let cart = carts.get(cartId);
-  if (!cart) {
-    cart = { id: cartId, lines: [], updatedAt: Date.now() };
-    carts.set(cartId, cart);
-  }
-
-  const existing = cart.lines.find((line) => line.variantId === variantId);
-  if (existing) {
-    existing.quantity += quantity;
-  } else {
-    cart.lines.push({ variantId, quantity });
-  }
-
-  cart.updatedAt = Date.now();
-  return cart;
+): Promise<boolean> {
+  return medusaAddItem(cartId, variantId, quantity);
 }
 
 export async function updateCartLine(
@@ -178,46 +158,68 @@ export async function updateCartLine(
   variantId: string,
   quantity: number,
 ): Promise<Cart | null> {
-  const cart = carts.get(cartId);
-  if (!cart) return null;
-
-  if (quantity <= 0) {
-    cart.lines = cart.lines.filter((line) => line.variantId !== variantId);
-  } else {
-    const line = cart.lines.find((candidate) => candidate.variantId === variantId);
-    if (line) line.quantity = quantity;
-  }
-
-  cart.updatedAt = Date.now();
-  return cart;
+  await medusaSetQuantity(cartId, variantId, quantity);
+  return getCart(cartId);
 }
 
 export async function removeFromCart(cartId: string, variantId: string): Promise<Cart | null> {
   return updateCartLine(cartId, variantId, 0);
 }
 
-/** Joins cart lines against the catalog. Silently drops lines whose variant vanished. */
+/**
+ * Builds renderable lines from the Medusa cart.
+ *
+ * Everything the UI needs is already on the cart line, so no per-line
+ * catalog lookup happens here — which matters because the header badge
+ * resolves the cart on every page render.
+ *
+ * Totals stay app-side: shipping is this storefront's own rule (flat rate,
+ * free above a threshold in `brand`), not something Medusa is configured for.
+ */
 export async function resolveCart(cartId: string): Promise<{
   cart: Cart | null;
   lines: ResolvedCartLine[];
   totals: CartTotals;
 }> {
-  const cart = carts.get(cartId) ?? null;
-  const lines: ResolvedCartLine[] = [];
+  const cart = await getMedusaCart(cartId);
+  if (!cart) return { cart: null, lines: [], totals: computeTotals([]) };
 
-  for (const line of cart?.lines ?? []) {
-    const match = await findVariant(line.variantId);
-    if (!match) continue;
-    lines.push({
-      variantId: line.variantId,
-      quantity: line.quantity,
-      product: match.product,
-      variant: match.variant,
-      lineTotal: match.variant.price * line.quantity,
-    });
-  }
+  const lines: ResolvedCartLine[] = cart.items.map((item) => {
+    const unitPrice = Math.round(item.unit_price * 100);
 
-  return { cart, lines, totals: computeTotals(lines) };
+    return {
+      variantId: item.variant_id,
+      quantity: item.quantity,
+      product: {
+        handle: item.product_handle ?? "",
+        name: item.product_title,
+        aliases: [],
+        category: "",
+        blurb: "",
+        description: "",
+        form: "",
+        storage: "",
+        variants: [],
+      },
+      variant: {
+        id: item.variant_id,
+        label: item.variant_title ?? "Standard",
+        price: unitPrice,
+        inStock: true,
+      },
+      lineTotal: unitPrice * item.quantity,
+    };
+  });
+
+  return {
+    cart: {
+      id: cart.id,
+      lines: lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
+      updatedAt: Date.now(),
+    },
+    lines,
+    totals: computeTotals(lines),
+  };
 }
 
 export function computeTotals(lines: ResolvedCartLine[]): CartTotals {
@@ -286,6 +288,10 @@ export async function markOrderFailed(orderId: string): Promise<void> {
  * Only call once payment has actually succeeded. Dropping the cart before the
  * gateway answers loses the customer's basket on every decline.
  */
-export async function deleteCart(cartId: string): Promise<void> {
-  carts.delete(cartId);
+export async function deleteCart(_cartId: string): Promise<void> {
+  /*
+   * Medusa retires a cart when it is completed into an order, so there is
+   * nothing to delete here. Kept so callers need not care which backend
+   * owns the cart.
+   */
 }

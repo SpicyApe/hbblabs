@@ -40,6 +40,13 @@ if (!out) {
       storage: p.storage,
       ...(p.sequence ? { sequence: p.sequence } : {}),
       ...(p.cas ? { cas: p.cas } : {}),
+      /*
+       * Medusa has no "featured" flag. Carrying it as metadata keeps the
+       * homepage's featured row working without inventing a collection
+       * whose only purpose is to hold six products. Stringified because
+       * metadata values are strings.
+       */
+      ...(p.featured ? { featured: "true" } : {}),
     },
     featured: Boolean(p.featured),
     variants: p.variants.map((v) => ({
