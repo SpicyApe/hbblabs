@@ -124,6 +124,21 @@ async function resolveCategory(name) {
 const toDecimal = (cents) => (cents / 100).toFixed(2);
 
 /**
+ * Catalog pricing to WooCommerce's pair.
+ *
+ * The catalog's `price` is what the customer pays and `compareAt` is the
+ * struck-through reference above it. WooCommerce inverts that: regular_price
+ * is the list price and sale_price the reduced one. Mapping `price` straight
+ * onto regular_price would charge the right amount but silently drop the
+ * discount.
+ */
+function priceFields(variant) {
+  return variant.compareAt
+    ? { regular_price: toDecimal(variant.compareAt), sale_price: toDecimal(variant.price) }
+    : { regular_price: toDecimal(variant.price) };
+}
+
+/**
  * Pushes one product from src/data/products.ts into WooCommerce.
  *
  * Multi-variant products become WooCommerce variable products: one "Size"
@@ -179,9 +194,7 @@ async function pushProduct() {
             },
           ],
         }
-      : {
-          regular_price: toDecimal(product.variants[0].price),
-        }),
+      : priceFields(product.variants[0])),
   };
 
   const created = await wc("/products", { method: "POST", body: payload });
@@ -192,7 +205,7 @@ async function pushProduct() {
       method: "POST",
       body: {
         create: product.variants.map((v) => ({
-          regular_price: toDecimal(v.price),
+          ...priceFields(v),
           attributes: [{ name: "Size", option: v.label }],
           manage_stock: false,
           stock_status: v.inStock ? "instock" : "outofstock",
@@ -201,7 +214,8 @@ async function pushProduct() {
     });
     for (const v of result.create ?? []) {
       const size = v.attributes?.[0]?.option ?? "?";
-      console.log(`  · variation #${v.id}  ${size}  $${v.regular_price}`);
+      const sale = v.sale_price ? ` (on sale from $${v.regular_price})` : "";
+      console.log(`  · variation #${v.id}  ${size}  $${v.price}${sale}`);
     }
   }
 
