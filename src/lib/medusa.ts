@@ -128,6 +128,26 @@ export function regionId(): Promise<string | null> {
 
 const PRODUCT_FIELDS = "*variants.calculated_price,+metadata,*categories";
 
+/*
+ * Category handles are what the storefront's URLs carry, but the products
+ * endpoint filters by id and rejects a handle outright with a 400. Resolved
+ * once and cached; a miss costs a request, never a wrong filter.
+ */
+const categoryIdCache = new Map<string, string | null>();
+
+async function categoryIdFor(handle: string): Promise<string | null> {
+  const cached = categoryIdCache.get(handle);
+  if (cached !== undefined) return cached;
+
+  const data = await request<{ product_categories: MedusaCategory[] }>(
+    `/store/product-categories?handle=${encodeURIComponent(handle)}`,
+    { revalidate: 3600 },
+  );
+  const id = data?.product_categories?.[0]?.id ?? null;
+  categoryIdCache.set(handle, id);
+  return id;
+}
+
 function mapProduct(product: MedusaProduct): Product {
   const meta = product.metadata ?? {};
 
@@ -182,10 +202,11 @@ export async function listMedusaProducts(options?: {
   search?: string;
   sort?: "featured" | "price-asc" | "price-desc" | "name";
 }): Promise<Product[]> {
+  const categoryId = options?.category ? await categoryIdFor(options.category) : null;
+
   const products = await listRaw({
     q: options?.search,
-    category_id: undefined,
-    ...(options?.category ? { "category_handle[]": options.category } : {}),
+    ...(categoryId ? { "category_id[]": categoryId } : {}),
   });
 
   /*
@@ -224,7 +245,10 @@ export async function getMedusaRelated(handle: string, limit = 4): Promise<Produ
   const current = await getMedusaProduct(handle);
   if (!current?.category) return [];
 
-  const products = await listRaw({ "category_handle[]": current.category });
+  const categoryId = await categoryIdFor(current.category);
+  if (!categoryId) return [];
+
+  const products = await listRaw({ "category_id[]": categoryId });
   return products.filter((p) => p.handle !== handle).slice(0, limit);
 }
 

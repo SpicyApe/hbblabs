@@ -16,12 +16,27 @@ export async function getCartId(): Promise<string | null> {
  * Reads the cart id, creating a cart if there isn't one. Only call from a
  * server action or route handler — anywhere else the cookie write throws.
  */
-export async function getOrCreateCartId(): Promise<string> {
+export async function getOrCreateCartId(): Promise<string | null> {
   const store = await cookies();
   const existing = store.get(CART_COOKIE)?.value;
   if (existing) return existing;
 
+  return resetCartId();
+}
+
+/**
+ * Opens a new cart and overwrites the cookie.
+ *
+ * Needed whenever Medusa rejects the cart we hold — a cart from a previous
+ * backend, or one that has since been completed into an order. Returns null
+ * if Medusa cannot be reached, and writes no cookie in that case: storing an
+ * id the backend does not know is what breaks a visitor permanently.
+ */
+export async function resetCartId(): Promise<string | null> {
+  const store = await cookies();
   const cart = await createCart();
+  if (!cart) return null;
+
   store.set(CART_COOKIE, cart.id, {
     httpOnly: true,
     sameSite: "lax",

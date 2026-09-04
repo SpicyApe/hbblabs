@@ -116,14 +116,21 @@ export async function getRelatedProducts(handle: string, limit = 4): Promise<Pro
 // Cart
 // ---------------------------------------------------------------------------
 
-/*
- * The cart id is a Medusa cart id. Carts live in Medusa, so they survive a
- * restart and are shared across instances — the thing neither the in-memory
- * scaffold nor WooCommerce's headless cart could manage.
+/**
+ * Opens a cart in Medusa.
+ *
+ * The cart id is a Medusa cart id, so carts survive a restart and are shared
+ * across instances — what neither the in-memory scaffold nor WooCommerce's
+ * headless cart managed.
+ *
+ * Returns null when Medusa does not answer. It deliberately does not invent
+ * a local id as a fallback: that id is written to a cookie, Medusa has never
+ * heard of it, and every later request 404s — permanently, for that visitor,
+ * with no way to recover.
  */
-export async function createCart(): Promise<Cart> {
+export async function createCart(): Promise<Cart | null> {
   const id = await createMedusaCart();
-  return { id: id ?? newId("cart"), lines: [], updatedAt: Date.now() };
+  return id ? { id, lines: [], updatedAt: Date.now() } : null;
 }
 
 export async function getCart(cartId: string): Promise<Cart | null> {
