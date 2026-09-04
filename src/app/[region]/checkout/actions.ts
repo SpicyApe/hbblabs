@@ -1,15 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import {
-  resolveCart,
-  createOrder,
-  markOrderPaid,
-  markOrderFailed,
-  deleteCart,
-} from "@/lib/db";
+import { resolveCart, placeMedusaOrder } from "@/lib/db";
 import { getCartId, clearCartCookie } from "@/lib/session";
-import { getPaymentProvider } from "@/lib/payments";
 import { brand } from "@/lib/brand";
 
 export interface CheckoutState {
@@ -50,21 +43,30 @@ function echo(formData: FormData): Record<string, string> {
 }
 
 /**
- * Places an order.
+ * Places an order through Medusa.
  *
- * SCAFFOLD: shipping address, tax, and address validation are all missing. The
- * one thing done properly here is the amount — it comes from the server-side
- * cart, never from the submitted form, because a total in a request body is
- * attacker-controlled.
+ * The order is real: it persists, survives a restart and appears in the
+ * Medusa admin. What settles it depends on the backend's registered payment
+ * provider — NMI once its keys are set, otherwise Medusa's system provider,
+ * which records a payment without moving money. So this creates genuine
+ * orders that nobody has actually paid for yet.
+ *
+ * The amount is never read from the form. Medusa prices the cart server-side
+ * and totals the order itself; a total in a request body is attacker
+ * controlled.
+ *
+ * SCAFFOLD: shipping address, tax and address validation are still missing.
  */
 export async function placeOrder(
   _previous: CheckoutState,
   formData: FormData,
 ): Promise<CheckoutState> {
   const cartId = await getCartId();
-  if (!cartId) return { error: "Your cart expired. Please add items again.", values: echo(formData) };
+  if (!cartId) {
+    return { error: "Your cart expired. Please add items again.", values: echo(formData) };
+  }
 
-  const { lines, totals } = await resolveCart(cartId);
+  const { lines } = await resolveCart(cartId);
   if (lines.length === 0) return { error: "Your cart is empty.", values: echo(formData) };
 
   const email = String(formData.get("email") ?? "").trim();
@@ -79,26 +81,17 @@ export async function placeOrder(
     };
   }
 
-  const order = await createOrder({ cartId, email });
+  const { order, error } = await placeMedusaOrder(cartId, email);
 
-  const payment = await getPaymentProvider().authorize({
-    orderId: order.id,
-    amount: { value: totals.total, currency: "USD" },
-    paymentToken: String(formData.get("paymentToken") ?? "tok_test"),
-    email,
-  });
-
-  if (!payment.ok) {
-    // Leave the cart intact so a declined card doesn't cost them the basket.
-    await markOrderFailed(order.id);
-    return {
-      error: payment.errorMessage ?? "Payment could not be processed.",
-      values: echo(formData),
-    };
+  if (!order) {
+    /*
+     * The cart is left alone on failure. Medusa only retires it once the
+     * order exists, so a refusal here costs the customer nothing.
+     */
+    return { error: error ?? "The order could not be placed.", values: echo(formData) };
   }
 
-  await markOrderPaid(order.id, payment.reference ?? "");
-  await deleteCart(cartId);
+  // Medusa has consumed the cart; the cookie now names something that is gone.
   await clearCartCookie();
   redirect(`/${brand.defaultRegion}/order/${order.id}`);
 }

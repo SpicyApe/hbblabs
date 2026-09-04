@@ -74,7 +74,8 @@ export default async function OrderPage({
       </div>
 
       <p className="mt-8 rounded-lg bg-copper-50 px-4 py-3 text-xs text-copper-900">
-        This is a scaffold order. No payment was taken and nothing will ship.
+        This order is recorded, but no payment was taken and nothing will ship.
+        A payment gateway is not yet connected.
       </p>
 
       <Link

@@ -1,16 +1,15 @@
 /**
- * DATABASE SCAFFOLD
- * =================
+ * The backend seam.
  *
- * Every read and write the storefront performs goes through this module.
- * The catalog and carts both come from Medusa (see `src/lib/medusa.ts`), so
- * carts are real: they survive a restart and are shared across instances.
+ * Every read and write the storefront performs goes through this module, and
+ * all of it now reaches Medusa (see `src/lib/medusa.ts`): catalog, carts and
+ * orders. Nothing is held in process, so state survives a restart and is
+ * shared across instances.
  *
- * ORDERS are the remaining scaffold — an in-process Map. They do not
- * persist, and they are not the orders Medusa knows about. Medusa's
- * /store/carts/:id/complete turns a cart into a genuine order; wiring
- * checkout to it, alongside a payment provider that moves money, is what
- * makes this real.
+ * What remains unfinished is payment, not persistence. Orders are real and
+ * appear in the Medusa admin, but they are settled by whichever provider the
+ * backend registers — NMI once its keys are set, otherwise Medusa's system
+ * provider, which records a payment without moving money.
  */
 
 import type { Product, ProductCategory, ProductVariant } from "@/data/products";
@@ -24,6 +23,12 @@ import {
   getMedusaCart,
   medusaAddItem,
   medusaSetQuantity,
+  setCartEmail,
+  initPaymentSession,
+  completeMedusaCart,
+  getMedusaOrder,
+  regionId,
+  type MedusaOrder,
 } from "@/lib/medusa";
 
 // ---------------------------------------------------------------------------
@@ -69,23 +74,6 @@ export interface Order {
   paymentReference?: string;
   placedAt: number;
 }
-
-// ---------------------------------------------------------------------------
-// In-memory stores — replace with real tables
-// ---------------------------------------------------------------------------
-
-/*
- * Held on globalThis so Next's dev-mode hot reload does not wipe the cart on
- * every edit. A real datastore makes this hack unnecessary.
- */
-const stores = globalThis as unknown as {
-  __hercules_orders?: Map<string, Order>;
-};
-
-const orders = (stores.__hercules_orders ??= new Map<string, Order>());
-
-const newId = (prefix: string) =>
-  `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
 // ---------------------------------------------------------------------------
 // Catalog reads
@@ -248,47 +236,100 @@ export function computeTotals(lines: ResolvedCartLine[]): CartTotals {
 // Orders
 // ---------------------------------------------------------------------------
 
-export async function createOrder(input: {
-  cartId: string;
-  email: string;
-  paymentReference?: string;
-  status?: OrderStatus;
-}): Promise<Order> {
-  const { lines, totals } = await resolveCart(input.cartId);
+/** Medusa's payment status vocabulary, mapped onto this app's. */
+function toOrderStatus(order: MedusaOrder): OrderStatus {
+  switch (order.payment_status) {
+    case "captured":
+    case "authorized":
+      return "paid";
+    case "canceled":
+    case "requires_more":
+      return "failed";
+    default:
+      return "pending";
+  }
+}
 
-  const order: Order = {
-    id: newId("order"),
-    cartId: input.cartId,
-    email: input.email,
-    status: input.status ?? "pending",
+function mapOrder(order: MedusaOrder): Order {
+  const lines: ResolvedCartLine[] = order.items.map((item) => {
+    const unitPrice = Math.round(item.unit_price * 100);
+    return {
+      variantId: item.variant_id,
+      quantity: item.quantity,
+      product: {
+        handle: item.product_handle ?? "",
+        name: item.product_title,
+        aliases: [],
+        category: "",
+        blurb: "",
+        description: "",
+        form: "",
+        storage: "",
+        variants: [],
+      },
+      variant: {
+        id: item.variant_id,
+        label: item.variant_title ?? "Standard",
+        price: unitPrice,
+        inStock: true,
+      },
+      lineTotal: unitPrice * item.quantity,
+    };
+  });
+
+  return {
+    id: order.id,
+    cartId: "",
+    email: order.email ?? "",
+    status: toOrderStatus(order),
     lines,
-    totals,
-    paymentReference: input.paymentReference,
+    /*
+     * Totals come from Medusa, which is the authority once an order exists —
+     * unlike the cart, where shipping is this storefront's own rule.
+     */
+    totals: {
+      subtotal: Math.round(order.subtotal * 100),
+      shipping: Math.round((order.shipping_total ?? 0) * 100),
+      total: Math.round(order.total * 100),
+      freeShippingRemaining: 0,
+    },
     placedAt: Date.now(),
   };
+}
 
-  orders.set(order.id, order);
-  return order;
+/**
+ * Turns the cart into a real Medusa order.
+ *
+ * Replaces the in-process Map this used to write to. Orders now persist,
+ * survive a restart, and are visible in the Medusa admin.
+ *
+ * Payment is settled by whichever provider the backend has registered: NMI
+ * once its keys are set, otherwise Medusa's system provider, which records
+ * a payment without moving money.
+ */
+export async function placeMedusaOrder(
+  cartId: string,
+  email: string,
+): Promise<{ order?: Order; error?: string }> {
+  if (!(await setCartEmail(cartId, email))) {
+    return { error: "Could not save your email against the order." };
+  }
+
+  const region = await regionId();
+  if (!region) return { error: "Store region unavailable. Please try again." };
+
+  const session = await initPaymentSession(cartId, region);
+  if (!session.ok) return { error: session.error };
+
+  const { order, error } = await completeMedusaCart(cartId);
+  if (!order) return { error };
+
+  return { order: mapOrder(order) };
 }
 
 export async function getOrder(orderId: string): Promise<Order | null> {
-  return orders.get(orderId) ?? null;
-}
-
-export async function markOrderPaid(
-  orderId: string,
-  paymentReference: string,
-): Promise<Order | null> {
-  const order = orders.get(orderId);
-  if (!order) return null;
-  order.status = "paid";
-  order.paymentReference = paymentReference;
-  return order;
-}
-
-export async function markOrderFailed(orderId: string): Promise<void> {
-  const order = orders.get(orderId);
-  if (order) order.status = "failed";
+  const order = await getMedusaOrder(orderId);
+  return order ? mapOrder(order) : null;
 }
 
 /**

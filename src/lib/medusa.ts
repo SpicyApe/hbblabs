@@ -69,6 +69,19 @@ export interface MedusaCart {
   items: MedusaCartItem[];
 }
 
+export interface MedusaOrder {
+  id: string;
+  display_id?: number;
+  email: string | null;
+  currency_code: string;
+  subtotal: number;
+  total: number;
+  shipping_total?: number;
+  items: MedusaCartItem[];
+  payment_status?: string;
+  status?: string;
+}
+
 /** Decimal amount to minor units. */
 const toMinorUnits = (amount: number | null | undefined): number =>
   amount == null ? 0 : Math.round(amount * 100);
@@ -316,4 +329,82 @@ export async function medusaSetQuantity(
       : { ...live, method: "DELETE" },
   );
   return data !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Checkout
+// ---------------------------------------------------------------------------
+
+/** Attaches the customer's email to the cart; Medusa requires it to complete. */
+export async function setCartEmail(cartId: string, email: string): Promise<boolean> {
+  const data = await request<{ cart: MedusaCart }>(`/store/carts/${cartId}`, {
+    ...live,
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  return data !== null;
+}
+
+/**
+ * Prepares a cart for completion by opening a payment session.
+ *
+ * Medusa will not turn a cart into an order without one. Which provider
+ * answers depends on what the backend has registered: NMI once its keys are
+ * set, otherwise `pp_system_default`, which records a payment without moving
+ * any money.
+ */
+export async function initPaymentSession(
+  cartId: string,
+  regionIdValue: string,
+): Promise<{ ok: boolean; providerId?: string; error?: string }> {
+  const providers = await request<{
+    payment_providers: { id: string; is_enabled?: boolean }[];
+  }>(`/store/payment-providers?region_id=${regionIdValue}`, { revalidate: 300 });
+
+  const providerId = providers?.payment_providers?.[0]?.id;
+  if (!providerId) {
+    return { ok: false, error: "No payment provider is configured for this region." };
+  }
+
+  const collection = await request<{ payment_collection: { id: string } }>(
+    "/store/payment-collections",
+    { ...live, method: "POST", body: JSON.stringify({ cart_id: cartId }) },
+  );
+  const collectionId = collection?.payment_collection?.id;
+  if (!collectionId) return { ok: false, error: "Could not open a payment collection." };
+
+  const session = await request(
+    `/store/payment-collections/${collectionId}/payment-sessions`,
+    { ...live, method: "POST", body: JSON.stringify({ provider_id: providerId }) },
+  );
+  if (session === null) return { ok: false, error: "Could not start a payment session." };
+
+  return { ok: true, providerId };
+}
+
+/**
+ * Turns the cart into an order.
+ *
+ * Medusa answers with `type: "order"` on success, or `type: "cart"` plus an
+ * error when it refuses — a 200 alone does not mean the order exists.
+ */
+export async function completeMedusaCart(
+  cartId: string,
+): Promise<{ order?: MedusaOrder; error?: string }> {
+  const data = await request<{
+    type: "order" | "cart";
+    order?: MedusaOrder;
+    error?: { message?: string };
+  }>(`/store/carts/${cartId}/complete`, { ...live, method: "POST" });
+
+  if (!data) return { error: "Could not reach the store to place the order." };
+  if (data.type !== "order" || !data.order) {
+    return { error: data.error?.message ?? "The order could not be placed." };
+  }
+  return { order: data.order };
+}
+
+export async function getMedusaOrder(orderId: string): Promise<MedusaOrder | null> {
+  const data = await request<{ order: MedusaOrder }>(`/store/orders/${orderId}`, live);
+  return data?.order ?? null;
 }
