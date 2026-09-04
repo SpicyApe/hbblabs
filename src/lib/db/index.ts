@@ -237,11 +237,16 @@ export function computeTotals(lines: ResolvedCartLine[]): CartTotals {
 // Orders
 // ---------------------------------------------------------------------------
 
-/** Medusa's payment status vocabulary, mapped onto this app's. */
+/**
+ * Medusa's payment status vocabulary, mapped onto this app's.
+ *
+ * "authorized" is deliberately not "paid": it means funds are held, not
+ * taken. Calling it paid would be wrong even with a real gateway, and
+ * doubly so now, when the system provider authorises without moving money.
+ */
 function toOrderStatus(order: MedusaOrder): OrderStatus {
   switch (order.payment_status) {
     case "captured":
-    case "authorized":
       return "paid";
     case "canceled":
     case "requires_more":
@@ -285,11 +290,15 @@ function mapOrder(order: MedusaOrder): Order {
     status: toOrderStatus(order),
     lines,
     /*
-     * Totals come from Medusa, which is the authority once an order exists —
-     * unlike the cart, where shipping is this storefront's own rule.
+     * Totals come from Medusa, the authority once an order exists — unlike
+     * the cart, where shipping is this storefront's own rule.
+     *
+     * `item_total` is the goods. Medusa's `subtotal` already includes
+     * shipping, so using it here would render subtotal + shipping against a
+     * total that does not match.
      */
     totals: {
-      subtotal: Math.round(order.subtotal * 100),
+      subtotal: Math.round((order.item_total ?? order.subtotal) * 100),
       shipping: Math.round((order.shipping_total ?? 0) * 100),
       total: Math.round(order.total * 100),
       freeShippingRemaining: 0,

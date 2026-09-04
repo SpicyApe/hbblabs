@@ -74,7 +74,9 @@ export interface MedusaOrder {
   display_id?: number;
   email: string | null;
   currency_code: string;
+  /** Includes shipping, despite the name. `item_total` is the goods alone. */
   subtotal: number;
+  item_total?: number;
   total: number;
   shipping_total?: number;
   items: MedusaCartItem[];
