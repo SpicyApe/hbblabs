@@ -28,16 +28,16 @@ export default async function CheckoutPage({
     <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold tracking-tight text-ink-950">Checkout</h1>
 
-      {/* This banner should be deleted the day a real gateway is wired in. */}
+      {/* Delete this banner the day NMI's keys are set and money moves. */}
       <div className="mt-6 rounded-xl border-l-4 border-copper-500 bg-copper-50 p-4">
         <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-copper-800">
           Scaffold — no payment is processed
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-copper-900">
-          This checkout runs against <code className="font-mono">MockPaymentProvider</code>.
-          Submitting creates an order record in memory and charges nothing. Do
-          not enter real card details. Use the token{" "}
-          <code className="font-mono">tok_decline</code> to exercise the failure path.
+          Submitting places a real order in Medusa — it persists and appears in
+          the store admin. No money moves: the gateway has no credentials yet,
+          so payment is recorded rather than taken. Do not enter real card
+          details.
         </p>
       </div>
 

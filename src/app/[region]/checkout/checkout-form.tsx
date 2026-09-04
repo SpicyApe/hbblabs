@@ -88,20 +88,14 @@ export function CheckoutForm({ region }: { region: string }) {
         <h2 className="text-sm font-bold text-ink-950">Payment</h2>
         <div className="mt-4 rounded-xl border border-dashed border-ink-300 bg-ink-50/60 p-5">
           <p className="text-sm font-medium text-ink-800">
-            Gateway fields not mounted
+            Card fields not mounted
           </p>
           <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
-            In production this is where the gateway&apos;s hosted card fields go —
-            an iframe the provider owns, so card numbers never touch this
-            server. Until then the form submits a test token.
+            NMI is wired into the store but has no credentials yet. Once it
+            does, its hosted fields mount here — an iframe the gateway owns, so
+            card numbers never reach this server. Until then the order is
+            recorded and nothing is charged.
           </p>
-          <label htmlFor="paymentToken" className={`${LABEL} mt-4`}>
-            Test token
-          </label>
-          <select id="paymentToken" name="paymentToken" defaultValue="tok_test" className={`${FIELD} mt-1.5`}>
-            <option value="tok_test">tok_test — approves</option>
-            <option value="tok_decline">tok_decline — declines</option>
-          </select>
         </div>
       </section>
 

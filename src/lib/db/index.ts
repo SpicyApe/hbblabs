@@ -24,6 +24,7 @@ import {
   medusaAddItem,
   medusaSetQuantity,
   setCartEmail,
+  selectShippingMethod,
   initPaymentSession,
   completeMedusaCart,
   getMedusaOrder,
@@ -314,6 +315,9 @@ export async function placeMedusaOrder(
   if (!(await setCartEmail(cartId, email))) {
     return { error: "Could not save your email against the order." };
   }
+
+  const shipping = await selectShippingMethod(cartId);
+  if (!shipping.ok) return { error: shipping.error };
 
   const region = await regionId();
   if (!region) return { error: "Store region unavailable. Please try again." };

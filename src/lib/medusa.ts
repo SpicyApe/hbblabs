@@ -346,6 +346,40 @@ export async function setCartEmail(cartId: string, email: string): Promise<boole
 }
 
 /**
+ * Selects a shipping method on the cart.
+ *
+ * Medusa refuses to complete a cart whose items require shipping until one is
+ * chosen, and the refusal arrives as a 400 at the very last step. There is
+ * only one option configured, so the cheapest is taken without asking.
+ */
+export async function selectShippingMethod(
+  cartId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const data = await request<{
+    shipping_options: { id: string; amount?: number }[];
+  }>(`/store/shipping-options?cart_id=${cartId}`, live);
+
+  const options = data?.shipping_options ?? [];
+  if (!options.length) {
+    return { ok: false, error: "No delivery option is available for this order." };
+  }
+
+  const cheapest = options.reduce((low, o) =>
+    (o.amount ?? Infinity) < (low.amount ?? Infinity) ? o : low,
+  );
+
+  const applied = await request(`/store/carts/${cartId}/shipping-methods`, {
+    ...live,
+    method: "POST",
+    body: JSON.stringify({ option_id: cheapest.id }),
+  });
+
+  return applied === null
+    ? { ok: false, error: "Could not apply a delivery method." }
+    : { ok: true };
+}
+
+/**
  * Prepares a cart for completion by opening a payment session.
  *
  * Medusa will not turn a cart into an order without one. Which provider
