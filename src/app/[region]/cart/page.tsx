@@ -3,7 +3,6 @@ import Link from "next/link";
 import { resolveCart } from "@/lib/db";
 import { getCartId } from "@/lib/session";
 import { formatPrice } from "@/data/products";
-import { brand } from "@/lib/brand";
 import { Vial, tintFor } from "@/components/vial";
 import { CartLineControls } from "./line-controls";
 
@@ -21,7 +20,7 @@ export default async function CartPage({
   const cartId = await getCartId();
   const { lines, totals } = cartId
     ? await resolveCart(cartId)
-    : { lines: [], totals: { subtotal: 0, shipping: 0, total: 0, freeShippingRemaining: brand.freeShippingThreshold } };
+    : { lines: [], totals: { subtotal: 0, shipping: 0, total: 0 } };
 
   if (lines.length === 0) {
     return (
@@ -107,12 +106,6 @@ export default async function CartPage({
               </dd>
             </div>
           </dl>
-
-          {totals.freeShippingRemaining > 0 && (
-            <p className="mt-4 rounded-lg bg-copper-50 px-3 py-2.5 text-xs text-copper-800">
-              Add {formatPrice(totals.freeShippingRemaining)} for free shipping.
-            </p>
-          )}
 
           <Link
             href={`/${region}/checkout`}

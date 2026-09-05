@@ -14,8 +14,14 @@ export const brand = {
   /** Minimum age asserted at the compliance gate. */
   minimumAge: 21,
 
-  /** Free shipping threshold, in minor units (cents). */
-  freeShippingThreshold: 10_000,
+  /**
+   * Flat domestic shipping, in minor units (cents).
+   *
+   * Must match the shipping option priced in Medusa: the storefront quotes
+   * this on the cart, Medusa charges it on the order, and a mismatch shows
+   * the customer one number and bills another.
+   */
+  flatShipping: 900,
 
   /** Default storefront region. Routes are prefixed /{region}. */
   defaultRegion: "us",

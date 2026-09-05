@@ -27,7 +27,7 @@ export async function generateMetadata({
 
 const SHIPPING_NOTES = [
   { title: "Ships in 0–2 business days", detail: "Order before 3:00 PM ET for same-day dispatch." },
-  { title: "Free shipping over $100", detail: "Overnight and 2-day options at checkout." },
+  { title: "Flat-rate shipping", detail: "$9 on every domestic order, whatever the size." },
   { title: "Shipment protection included", detail: "Lost, stolen or damaged in transit? Replaced at no cost." },
   { title: "Discreet packaging", detail: "Unbranded outer carton, tracking on every order." },
 ] as const;

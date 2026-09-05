@@ -86,8 +86,7 @@ export default async function HomePage({
               </Link>
             </div>
             <p className="mt-6 font-mono text-[11px] uppercase tracking-wider text-ink-400">
-              {products.length} compounds · Free shipping over{" "}
-              {formatPrice(brand.freeShippingThreshold)}
+              {products.length} compounds · {formatPrice(brand.flatShipping)} flat-rate shipping
             </p>
           </div>
         </div>
