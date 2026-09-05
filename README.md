@@ -102,29 +102,62 @@ assumes a browser holding a cookie session against the host that renders the
 pages. Medusa treats carts as server-side objects addressed by id, which is
 why the same operation works here.
 
-## The remaining scaffolds
+## What is not finished
 
-### Orders — `src/lib/db/index.ts`
+### Orders
 
-Every read and write goes through this module, and the catalog and cart halves
-of it are now real. **Orders are not.** They are an in-process `Map` held on
-`globalThis`: they do not persist across a restart, will not survive more than
-one server instance, and are not the orders Medusa knows about.
+Orders are real: checkout completes the cart through Medusa, so they persist,
+survive a restart and appear in the Medusa admin. The in-process `Map` they
+used to live in is gone, along with `src/lib/payments`.
 
-Medusa's `/store/carts/:id/complete` turns a cart into a genuine order.
-Wiring checkout to it — alongside a payment provider that moves money — is
-what makes this real.
+Two details that cost time and are easy to trip over again. Cart completion
+answers `200` with `type: "cart"` when it refuses, so success has to be
+checked on the type rather than the status code. And Medusa's order
+`subtotal` **includes shipping** — `item_total` is the goods alone, which is
+what the confirmation page needs if its arithmetic is to add up.
 
-### Payments — `src/lib/payments/index.ts`
+### Payments — NMI
 
-`MockPaymentProvider` approves everything except `tok_decline` and moves no
-money. Implement the `PaymentProvider` interface against a real gateway and
-swap the one line in `getPaymentProvider()`.
+Orders are real and persist in Medusa, but **no money moves**. The backend
+registers `medusa-payment-nmi` only when `NMI_SECURITY_KEY` is present
+(see `medusa-config.ts` in the backend repo); without it Medusa falls back
+to `pp_system_default`, which authorises without taking anything. So the
+store currently creates genuine orders nobody has paid for.
 
-Before that goes live, read the notes in the file header. The important ones:
-card data must never reach this server (use the gateway's hosted fields),
-confirm the amount server-side from the cart rather than the request body, and
-make `capture` idempotent on order id.
+Finishing it needs three things, in order:
+
+1. **An NMI merchant account.** This is underwriting with a bank, not a
+   signup — weeks, not minutes. It is the real gate, and no code gets
+   around it. NMI is a high-risk gateway, which is the point: Stripe,
+   PayPal and Square all decline this product category in their
+   acceptable-use policies. It is also what aminoclub.com settles through.
+
+2. **Keys into Railway** (Settings → Security Keys and Webhooks in the NMI
+   Merchant Portal), set on the backend service, never in the repo:
+
+   ```
+   NMI_SECURITY_KEY        server-side transact.php calls
+   NMI_TOKENIZATION_KEY    browser tokenization
+   NMI_WEBHOOK_SECRET      HMAC verification, required for ACH settlement
+   NMI_SANDBOX=true        routes to sandbox.nmi.com while testing
+   ```
+
+   Sandbox keys come from a sandbox account — the plugin ships no public
+   demo credentials, so this step cannot be faked or tested around.
+
+3. **Card fields in the storefront.** The plugin ships `NmiCardFields` /
+   `NmiAchFields` (Collect.js) and `NmiPaymentElement` as template code to
+   be copied into this app. They mount the gateway's hosted fields — an
+   iframe NMI owns — so card numbers never reach this server, and hand a
+   token to `initiatePaymentSession`. The checkout page has a placeholder
+   where these go.
+
+   This is deliberately not written yet: it cannot be exercised without a
+   tokenization key, and untested payment code is worse than none.
+
+Two rules that outlive the integration: confirm the amount server-side from
+the cart, never from the request body, and make capture idempotent on order
+id.
 
 ## Notes from the build
 
@@ -141,6 +174,12 @@ make `capture` idempotent on order id.
   is in it, which is not always what the product is sold as.
 
 ## Known gaps
+
+- **Shipping is configured in two places.** `brand.flatShipping` and
+  `brand.freeShippingOver` quote the cart; the seed's `FLAT_SHIPPING` and
+  `FREE_SHIPPING_OVER` price the Medusa shipping option that actually
+  charges the order. Nothing enforces that they agree, and if they drift the
+  customer is shown one number and billed another.
 
 - **No authentication.** `order/[id]` is readable by anyone who knows the id.
 - **No real product photography** — `src/components/vial.tsx` draws a tinted SVG
