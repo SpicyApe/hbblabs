@@ -15,13 +15,15 @@ export const brand = {
   minimumAge: 21,
 
   /**
-   * Flat domestic shipping, in minor units (cents).
+   * Domestic shipping, in minor units (cents).
    *
-   * Must match the shipping option priced in Medusa: the storefront quotes
-   * this on the cart, Medusa charges it on the order, and a mismatch shows
-   * the customer one number and bills another.
+   * Both must match the shipping option priced in Medusa, which enforces the
+   * threshold itself: the storefront quotes these on the cart, Medusa charges
+   * the order, and a mismatch shows the customer one number and bills
+   * another.
    */
   flatShipping: 900,
+  freeShippingOver: 2_500,
 
   /** Default storefront region. Routes are prefixed /{region}. */
   defaultRegion: "us",

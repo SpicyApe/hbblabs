@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getFeaturedProducts } from "@/lib/db";
-import { products, formatPrice } from "@/data/products";
+import { getFeaturedProducts, listProducts } from "@/lib/db";
+import { formatPrice } from "@/data/products";
 import { brand } from "@/lib/brand";
 import { Vial, tintFor } from "@/components/vial";
 import { ProductCard } from "@/components/product-card";
@@ -37,12 +37,25 @@ export default async function HomePage({
   params: Promise<{ region: string }>;
 }) {
   const { region } = await params;
-  const featured = await getFeaturedProducts(8);
+  /*
+   * The catalogue drives the page rather than the seed file it was built
+   * from. Reading the seed here meant the homepage advertised 50 compounds
+   * and drew vials for products the store does not carry.
+   */
+  const [featured, catalogue] = await Promise.all([
+    getFeaturedProducts(8),
+    listProducts(),
+  ]);
 
-  // Deterministic picks for the subscription-box preview.
-  const boxPreview = ["bpc-157", "tb-500", "ghk-cu", "nad-plus"]
-    .map((handle) => products.find((p) => p.handle === handle))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  /*
+   * Featured first, then whatever else is stocked, so these stay populated
+   * however few products exist.
+   */
+  const showcase = [
+    ...catalogue.filter((p) => p.featured),
+    ...catalogue.filter((p) => !p.featured),
+  ];
+  const boxPreview = showcase.slice(0, 4);
 
   const boxRetail = boxPreview.reduce(
     (sum, product) => sum + Math.min(...product.variants.map((v) => v.price)),
@@ -86,20 +99,25 @@ export default async function HomePage({
               </Link>
             </div>
             <p className="mt-6 font-mono text-[11px] uppercase tracking-wider text-ink-400">
-              {products.length} compounds · {formatPrice(brand.flatShipping)} flat-rate shipping
+              {catalogue.length} {catalogue.length === 1 ? "compound" : "compounds"} ·{" "}
+              free shipping over {formatPrice(brand.freeShippingOver)}
             </p>
           </div>
         </div>
 
         <div className="relative min-h-[380px] overflow-hidden bg-linear-to-br from-copper-50 via-bone-200 to-ink-50 lg:min-h-[600px]">
+          {/* Positions are fixed; which products fill them is not. */}
           {[
-            { handle: "glp-3", name: "GLP-3", left: "8%", top: "16%", w: 150, tilt: -8, delay: 0 },
-            { handle: "bpc-157", name: "BPC-157", left: "44%", top: "8%", w: 190, tilt: 6, delay: 2 },
-            { handle: "ghk-cu", name: "GHK-Cu", left: "20%", top: "52%", w: 210, tilt: 12, delay: 4 },
-            { handle: "nad-plus", name: "NAD+", left: "62%", top: "48%", w: 165, tilt: -14, delay: 1 },
-          ].map((item) => (
+            { left: "8%", top: "16%", w: 150, tilt: -8, delay: 0 },
+            { left: "44%", top: "8%", w: 190, tilt: 6, delay: 2 },
+            { left: "20%", top: "52%", w: 210, tilt: 12, delay: 4 },
+            { left: "62%", top: "48%", w: 165, tilt: -14, delay: 1 },
+          ]
+            .map((slot, index) => ({ ...slot, product: showcase[index % (showcase.length || 1)] }))
+            .filter((slot) => slot.product)
+            .map((item) => (
             <div
-              key={item.handle}
+              key={`${item.product.handle}-${item.left}`}
               className="animate-drift absolute drop-shadow-[0_25px_45px_rgba(10,17,32,0.18)]"
               style={{
                 left: item.left,
@@ -109,9 +127,13 @@ export default async function HomePage({
                 ["--drift-delay" as string]: `${item.delay}s`,
               }}
             >
-              <Vial handle={item.handle} name={item.name} className="h-auto w-full" />
+              <Vial
+                handle={item.product.handle}
+                name={item.product.name}
+                className="h-auto w-full"
+              />
             </div>
-          ))}
+            ))}
         </div>
       </section>
 
@@ -217,7 +239,7 @@ export default async function HomePage({
             href={`/${region}/store`}
             className="rounded-full border border-ink-300 px-5 py-2.5 text-sm font-semibold text-ink-800 transition hover:border-ink-500"
           >
-            View all {products.length}
+            View all {catalogue.length}
           </Link>
         </div>
 

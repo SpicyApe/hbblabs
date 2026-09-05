@@ -60,6 +60,8 @@ export interface CartTotals {
   subtotal: number;
   shipping: number;
   total: number;
+  /** How much more the cart needs to qualify for free shipping; 0 when it does. */
+  freeShippingRemaining: number;
 }
 
 export type OrderStatus = "pending" | "paid" | "failed" | "fulfilled";
@@ -221,14 +223,19 @@ export function computeTotals(lines: ResolvedCartLine[]): CartTotals {
   const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
 
   /*
-   * Flat domestic rate, matching the shipping option priced in Medusa. Empty
-   * carts ship free. There is deliberately no free-over-threshold rule: it
-   * was quoted here but not modelled in Medusa, so a large order showed free
-   * shipping in the cart and was charged for it on the order.
+   * Mirrors the shipping option priced in Medusa, which enforces the same
+   * threshold as a price rule. This quote is presentational — Medusa decides
+   * what the order is actually charged — so the two must agree.
    */
-  const shipping = subtotal === 0 ? 0 : brand.flatShipping;
+  const qualifies = subtotal >= brand.freeShippingOver;
+  const shipping = subtotal === 0 || qualifies ? 0 : brand.flatShipping;
 
-  return { subtotal, shipping, total: subtotal + shipping };
+  return {
+    subtotal,
+    shipping,
+    total: subtotal + shipping,
+    freeShippingRemaining: Math.max(0, brand.freeShippingOver - subtotal),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +306,7 @@ function mapOrder(order: MedusaOrder): Order {
       subtotal: Math.round((order.item_total ?? order.subtotal) * 100),
       shipping: Math.round((order.shipping_total ?? 0) * 100),
       total: Math.round(order.total * 100),
+      freeShippingRemaining: 0,
     },
     placedAt: Date.now(),
   };
