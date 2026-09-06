@@ -82,6 +82,18 @@ export interface MedusaOrder {
   items: MedusaCartItem[];
   payment_status?: string;
   status?: string;
+  /**
+   * Only populated when the extra fields are asked for — see `getMedusaOrder`.
+   * Carries the provider's session data, which for BTCPay is where the
+   * still-payable invoice link lives.
+   */
+  payment_collections?: {
+    payment_sessions?: {
+      provider_id: string;
+      status?: string;
+      data?: { checkoutLink?: string };
+    }[];
+  }[];
 }
 
 /** Decimal amount to minor units. */
@@ -382,22 +394,91 @@ export async function selectShippingMethod(
 }
 
 /**
+ * Which provider to use when the region offers more than one.
+ *
+ * BTCPay comes first because it is the only one here that can actually take
+ * money — NMI is registered but has no merchant account behind it, and the
+ * system provider records a payment without moving any. `pp_system_default`
+ * is last so it is only ever reached when nothing real is configured.
+ *
+ * SCAFFOLD: this picks for the customer. Once cards work, the choice belongs
+ * to them, which means a payment-method step at checkout rather than a
+ * constant here.
+ */
+const PROVIDER_PREFERENCE = [
+  "pp_btcpay_btcpay",
+  "pp_nmi-card",
+  "pp_nmi",
+  "pp_system_default",
+];
+
+/**
+ * How the store can currently be paid.
+ *
+ * "none" means the backend is running on Medusa's system provider, which
+ * records a payment without taking one — the checkout page says so rather than
+ * letting a customer believe they have bought something.
+ */
+export type PaymentMethod = "bitcoin" | "card" | "none";
+
+export async function availablePaymentMethod(): Promise<PaymentMethod> {
+  const region = await regionId();
+  if (!region) return "none";
+
+  const providers = await request<{
+    payment_providers: { id: string; is_enabled?: boolean }[];
+  }>(`/store/payment-providers?region_id=${region}`, { revalidate: 300 });
+
+  const offered = (providers?.payment_providers ?? [])
+    .filter((p) => p.is_enabled !== false)
+    .map((p) => p.id);
+
+  // Must agree with PROVIDER_PREFERENCE below, which decides what is used.
+  if (offered.includes("pp_btcpay_btcpay")) return "bitcoin";
+  if (offered.some((id) => id.startsWith("pp_nmi"))) return "card";
+  return "none";
+}
+
+/** What a session hands back to the storefront. Shapes vary by provider. */
+interface PaymentSessionData {
+  /** BTCPay: the hosted invoice page the customer pays on. */
+  checkoutLink?: string;
+}
+
+export interface PaymentSessionResult {
+  ok: boolean;
+  providerId?: string;
+  /**
+   * Where to send the customer to pay, when the provider hosts that itself.
+   * BTCPay does; a card form does not.
+   */
+  paymentLink?: string;
+  error?: string;
+}
+
+/**
  * Prepares a cart for completion by opening a payment session.
  *
- * Medusa will not turn a cart into an order without one. Which provider
- * answers depends on what the backend has registered: NMI once its keys are
- * set, otherwise `pp_system_default`, which records a payment without moving
- * any money.
+ * Medusa will not turn a cart into an order without one. With BTCPay the
+ * session is a Bitcoin invoice: nothing is paid yet, and the link it returns
+ * is where the customer settles it after the order exists.
  */
 export async function initPaymentSession(
   cartId: string,
   regionIdValue: string,
-): Promise<{ ok: boolean; providerId?: string; error?: string }> {
+): Promise<PaymentSessionResult> {
   const providers = await request<{
     payment_providers: { id: string; is_enabled?: boolean }[];
   }>(`/store/payment-providers?region_id=${regionIdValue}`, { revalidate: 300 });
 
-  const providerId = providers?.payment_providers?.[0]?.id;
+  const offered = (providers?.payment_providers ?? []).filter(
+    (p) => p.is_enabled !== false,
+  );
+
+  const providerId =
+    PROVIDER_PREFERENCE.find((id) => offered.some((p) => p.id === id)) ??
+    offered[0]?.id;
+
   if (!providerId) {
     return { ok: false, error: "No payment provider is configured for this region." };
   }
@@ -409,13 +490,27 @@ export async function initPaymentSession(
   const collectionId = collection?.payment_collection?.id;
   if (!collectionId) return { ok: false, error: "Could not open a payment collection." };
 
-  const session = await request(
-    `/store/payment-collections/${collectionId}/payment-sessions`,
-    { ...live, method: "POST", body: JSON.stringify({ provider_id: providerId }) },
-  );
+  const session = await request<{
+    payment_collection: {
+      payment_sessions?: { provider_id: string; data?: PaymentSessionData }[];
+    };
+  }>(`/store/payment-collections/${collectionId}/payment-sessions`, {
+    ...live,
+    method: "POST",
+    body: JSON.stringify({ provider_id: providerId }),
+  });
   if (session === null) return { ok: false, error: "Could not start a payment session." };
 
-  return { ok: true, providerId };
+  /*
+   * Read the link out of the session that was just created. A collection can
+   * hold sessions from earlier attempts, so match on the provider rather than
+   * taking the first one.
+   */
+  const paymentLink = session.payment_collection?.payment_sessions?.find(
+    (s) => s.provider_id === providerId,
+  )?.data?.checkoutLink;
+
+  return { ok: true, providerId, paymentLink };
 }
 
 /**
@@ -440,7 +535,21 @@ export async function completeMedusaCart(
   return { order: data.order };
 }
 
+/*
+ * Payment sessions are not in the store route's default fields, and the
+ * confirmation page needs them: with Bitcoin the customer often lands there
+ * before paying, and the invoice link is the only way back to the payment.
+ */
+const ORDER_FIELDS = [
+  "+payment_collections.payment_sessions.provider_id",
+  "+payment_collections.payment_sessions.status",
+  "+payment_collections.payment_sessions.data",
+].join(",");
+
 export async function getMedusaOrder(orderId: string): Promise<MedusaOrder | null> {
-  const data = await request<{ order: MedusaOrder }>(`/store/orders/${orderId}`, live);
+  const data = await request<{ order: MedusaOrder }>(
+    `/store/orders/${orderId}?fields=${encodeURIComponent(ORDER_FIELDS)}`,
+    live,
+  );
   return data?.order ?? null;
 }

@@ -2,13 +2,20 @@
 
 import { useActionState } from "react";
 import { placeOrder, type CheckoutState } from "./actions";
+import type { PaymentMethod } from "@/lib/db";
 
 const FIELD =
   "w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-300 focus:border-copper-400 focus:outline-none";
 
 const LABEL = "block text-xs font-semibold text-ink-700";
 
-export function CheckoutForm({ region }: { region: string }) {
+export function CheckoutForm({
+  region,
+  paymentMethod,
+}: {
+  region: string;
+  paymentMethod: PaymentMethod;
+}) {
   const [state, formAction, pending] = useActionState<CheckoutState, FormData>(
     placeOrder,
     {},
@@ -87,15 +94,29 @@ export function CheckoutForm({ region }: { region: string }) {
       <section>
         <h2 className="text-sm font-bold text-ink-950">Payment</h2>
         <div className="mt-4 rounded-xl border border-dashed border-ink-300 bg-ink-50/60 p-5">
-          <p className="text-sm font-medium text-ink-800">
-            Card fields not mounted
-          </p>
-          <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
-            NMI is wired into the store but has no credentials yet. Once it
-            does, its hosted fields mount here — an iframe the gateway owns, so
-            card numbers never reach this server. Until then the order is
-            recorded and nothing is charged.
-          </p>
+          {paymentMethod === "bitcoin" ? (
+            <>
+              <p className="text-sm font-medium text-ink-800">Bitcoin</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
+                No card details are collected. Placing the order issues an
+                invoice and sends you to a payment page with an address and a QR
+                code. Nothing leaves your wallet until you send it, and the
+                order confirms on the first network confirmation.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-ink-800">
+                Card fields not mounted
+              </p>
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
+                NMI is wired into the store but has no credentials yet. Once it
+                does, its hosted fields mount here — an iframe the gateway owns,
+                so card numbers never reach this server. Until then the order is
+                recorded and nothing is charged.
+              </p>
+            </>
+          )}
         </div>
       </section>
 
@@ -132,7 +153,10 @@ export function CheckoutForm({ region }: { region: string }) {
       </button>
 
       <p className="text-center font-mono text-[10px] uppercase tracking-wider text-ink-300">
-        Region {region.toUpperCase()} · No charge will be made
+        Region {region.toUpperCase()} ·{" "}
+        {paymentMethod === "bitcoin"
+          ? "Invoice issued on the next step"
+          : "No charge will be made"}
       </p>
     </form>
   );

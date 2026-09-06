@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { resolveCart } from "@/lib/db";
+import { resolveCart, availablePaymentMethod } from "@/lib/db";
 import { getCartId } from "@/lib/session";
 import { formatPrice } from "@/data/products";
 import { brand } from "@/lib/brand";
@@ -24,25 +24,46 @@ export default async function CheckoutPage({
   const { lines, totals } = await resolveCart(cartId);
   if (lines.length === 0) redirect(`/${region}/cart`);
 
+  const paymentMethod = await availablePaymentMethod();
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold tracking-tight text-ink-950">Checkout</h1>
 
-      {/* Delete this banner the day NMI's keys are set and money moves. */}
-      <div className="mt-6 rounded-xl border-l-4 border-copper-500 bg-copper-50 p-4">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-copper-800">
-          Scaffold — no payment is processed
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-copper-900">
-          Submitting places a real order in Medusa — it persists and appears in
-          the store admin. No money moves: the gateway has no credentials yet,
-          so payment is recorded rather than taken. Do not enter real card
-          details.
-        </p>
-      </div>
+      {/*
+        What this says depends on what the backend can actually do, because a
+        wrong reassurance here is worse than none: telling someone their card
+        was charged when no gateway exists, or warning that nothing is taken
+        when a real Bitcoin invoice is about to be issued.
+      */}
+      {paymentMethod === "bitcoin" ? (
+        <div className="mt-6 rounded-xl border-l-4 border-ink-800 bg-ink-50 p-4">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-600">
+            Paying with Bitcoin
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-ink-800">
+            Placing the order issues a Bitcoin invoice and takes you to it. The
+            price is locked while the invoice is open, and your order confirms on
+            the first network confirmation — usually about ten minutes. Nothing
+            is charged until you send the payment.
+          </p>
+        </div>
+      ) : paymentMethod === "none" ? (
+        <div className="mt-6 rounded-xl border-l-4 border-copper-500 bg-copper-50 p-4">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-copper-800">
+            Scaffold — no payment is processed
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-copper-900">
+            Submitting places a real order in Medusa — it persists and appears in
+            the store admin. No money moves: no payment provider has credentials
+            yet, so payment is recorded rather than taken. Do not enter real card
+            details.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_340px]">
-        <CheckoutForm region={region} />
+        <CheckoutForm region={region} paymentMethod={paymentMethod} />
 
         <aside className="h-fit rounded-2xl border border-ink-100 bg-white p-6">
           <h2 className="text-sm font-bold text-ink-950">Order summary</h2>

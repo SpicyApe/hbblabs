@@ -47,9 +47,9 @@ function echo(formData: FormData): Record<string, string> {
  *
  * The order is real: it persists, survives a restart and appears in the
  * Medusa admin. What settles it depends on the backend's registered payment
- * provider — NMI once its keys are set, otherwise Medusa's system provider,
- * which records a payment without moving money. So this creates genuine
- * orders that nobody has actually paid for yet.
+ * provider. With BTCPay the order is created unpaid on purpose and the
+ * customer settles a Bitcoin invoice from the confirmation page; without it,
+ * Medusa's system provider records a payment without moving money.
  *
  * The amount is never read from the form. Medusa prices the cart server-side
  * and totals the order itself; a total in a request body is attacker

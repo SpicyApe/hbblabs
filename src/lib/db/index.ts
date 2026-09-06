@@ -6,10 +6,10 @@
  * orders. Nothing is held in process, so state survives a restart and is
  * shared across instances.
  *
- * What remains unfinished is payment, not persistence. Orders are real and
- * appear in the Medusa admin, but they are settled by whichever provider the
- * backend registers — NMI once its keys are set, otherwise Medusa's system
- * provider, which records a payment without moving money.
+ * Payment depends on what the backend registers. With BTCPay configured an
+ * order is settled by a real Bitcoin invoice, which confirms after the order
+ * is placed rather than during checkout. Without it, Medusa's system provider
+ * records a payment without moving money — see availablePaymentMethod.
  */
 
 import type { Product, ProductCategory, ProductVariant } from "@/data/products";
@@ -29,8 +29,12 @@ import {
   completeMedusaCart,
   getMedusaOrder,
   regionId,
+  availablePaymentMethod,
   type MedusaOrder,
+  type PaymentMethod,
 } from "@/lib/medusa";
+
+export { availablePaymentMethod, type PaymentMethod };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +78,13 @@ export interface Order {
   lines: ResolvedCartLine[];
   totals: CartTotals;
   paymentReference?: string;
+  /**
+   * Where an order that is not yet paid can still be paid.
+   *
+   * Bitcoin settles after the fact, so an order exists before the money does.
+   * This is the hosted BTCPay invoice — the customer's way back to it.
+   */
+  paymentLink?: string;
   placedAt: number;
 }
 
@@ -308,8 +319,21 @@ function mapOrder(order: MedusaOrder): Order {
       total: Math.round(order.total * 100),
       freeShippingRemaining: 0,
     },
+    paymentLink: paymentLinkOf(order),
     placedAt: Date.now(),
   };
+}
+
+/**
+ * Finds the hosted payment page on an order, if its provider has one.
+ *
+ * Only BTCPay populates this today. A card provider takes the money during
+ * checkout and leaves nothing to return to.
+ */
+function paymentLinkOf(order: MedusaOrder): string | undefined {
+  return order.payment_collections
+    ?.flatMap((collection) => collection.payment_sessions ?? [])
+    .find((session) => session.data?.checkoutLink)?.data?.checkoutLink;
 }
 
 /**
@@ -318,9 +342,12 @@ function mapOrder(order: MedusaOrder): Order {
  * Replaces the in-process Map this used to write to. Orders now persist,
  * survive a restart, and are visible in the Medusa admin.
  *
- * Payment is settled by whichever provider the backend has registered: NMI
- * once its keys are set, otherwise Medusa's system provider, which records
- * a payment without moving money.
+ * Payment is settled by whichever provider the backend has registered. With
+ * BTCPay the order is deliberately created before the money arrives: Bitcoin
+ * confirms in minutes, and holding the customer on the checkout page until a
+ * block lands would be worse than letting them pay from the confirmation. The
+ * order carries `paymentLink` until it settles. Without BTCPay it falls back
+ * to Medusa's system provider, which records a payment without moving money.
  */
 export async function placeMedusaOrder(
   cartId: string,

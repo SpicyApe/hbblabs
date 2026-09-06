@@ -102,6 +102,87 @@ assumes a browser holding a cookie session against the host that renders the
 pages. Medusa treats carts as server-side objects addressed by id, which is
 why the same operation works here.
 
+## Payments — Bitcoin, via BTCPay
+
+The store can take money. Bitcoin was first not because it is the obvious
+choice but because it is the only rail with no gatekeeper: card processors
+routinely drop this product category, and a merchant account is weeks of
+underwriting. BTCPay needs neither. It is self-hosted and non-custodial — it
+watches an xpub we own and never holds the coins — so nobody can switch it off.
+
+### How the flow differs from a card
+
+Bitcoin settles *after* the order exists, and the code is shaped around that
+rather than pretending otherwise. The provider reports `pending_authorization`
+while an invoice is unpaid, which Medusa treats as a deferred payment method:
+the cart completes, the order is created with payment awaiting, and BTCPay's
+webhook settles it minutes later. The alternative — holding the customer on
+the checkout page until a block lands — is not a checkout anyone finishes.
+
+So the confirmation page serves two states. Unpaid, it shows a **Complete
+payment** button linking to the hosted invoice, and says the order ships once
+payment confirms. Paid, it reads as a normal confirmation. `order.paymentLink`
+carries the invoice; it is read back from the order's payment session, which
+is why `getMedusaOrder` asks for fields the store route does not return by
+default.
+
+The speed policy is `MediumSpeed` — one confirmation, roughly ten minutes —
+rather than BTCPay's own zero-confirmation default. Zero-conf is fine for
+digital goods and wrong for anything that ships, because the payment can still
+be replaced before it confirms.
+
+### Standing one up
+
+1. **Get a BTCPay Server.** Either self-host it, or use one of the third-party
+   hosts in BTCPay's directory. Hosting does not mean custody: you supply an
+   xpub from a wallet you control and the coins go straight to it, so a host
+   can go away without taking the money with it.
+
+2. **Create a store, then an API key** (Account → Manage account → API keys)
+   with: view invoices, create invoice, modify invoices, view your stores.
+
+3. **Add a webhook** on the store pointing at
+   `https://<backend>/hooks/payment/btcpay_btcpay`, subscribed to at least
+   `InvoiceSettled`, `InvoiceProcessing`, `InvoiceExpired` and
+   `InvoiceInvalid`. Copy the secret it generates.
+
+4. **Set these on the Railway backend service** — never in the repo:
+
+   ```
+   BTCPAY_SERVER_URL        https://your-btcpay-host
+   BTCPAY_API_KEY           the Greenfield key from step 2
+   BTCPAY_STORE_ID          the BTCPay store id
+   BTCPAY_WEBHOOK_SECRET    from step 3
+   ```
+
+   Optional: `BTCPAY_SPEED_POLICY`, `BTCPAY_EXPIRATION_MINUTES` (default 60),
+   `BTCPAY_REDIRECT_URL`.
+
+The provider registers only when the first three are present, and the seed
+attaches it to the US region on the next boot. Until then the store runs on
+`pp_system_default` and the checkout page says so rather than implying a
+purchase happened.
+
+**The webhook secret is not optional in practice.** The webhook endpoint is
+unauthenticated by necessity — BTCPay cannot log in — so the `BTCPay-Sig`
+HMAC is the only thing between a stranger and marking any order paid. Without
+the secret set, the provider refuses every webhook and logs why, which means
+orders never settle. That is the safe failure, but it is still a failure.
+
+### A Medusa bug worth knowing about
+
+Medusa's payment-provider loader means to disable providers that drop out of
+the config, but it looks for them with `list({ id: providersToLoad })` — a
+filter that can only return providers still in the config — so the branch
+never runs. **A provider configured once stays `is_enabled` forever.** The
+seed therefore does not trust that table: it confirms an id exists there, but
+the environment decides what is actually attached to the region, mirroring
+`medusa-config.ts`. Attaching a provider whose implementation is no longer
+loaded would break checkout for whoever was offered it.
+
+`npx medusa exec ./src/scripts/list-payment-providers.ts` in the backend repo
+prints what is registered and which regions offer it.
+
 ## What is not finished
 
 ### Orders
@@ -116,13 +197,13 @@ checked on the type rather than the status code. And Medusa's order
 `subtotal` **includes shipping** — `item_total` is the goods alone, which is
 what the confirmation page needs if its arithmetic is to add up.
 
-### Payments — NMI
+### Payments — NMI (cards)
 
-Orders are real and persist in Medusa, but **no money moves**. The backend
-registers `medusa-payment-nmi` only when `NMI_SECURITY_KEY` is present
-(see `medusa-config.ts` in the backend repo); without it Medusa falls back
-to `pp_system_default`, which authorises without taking anything. So the
-store currently creates genuine orders nobody has paid for.
+Bitcoin works (above); cards do not. The backend registers
+`medusa-payment-nmi` only when `NMI_SECURITY_KEY` is present (see
+`medusa-config.ts` in the backend repo), and there is no merchant account
+behind it, so it has never taken a payment. Cards matter anyway — most
+customers will not pay in Bitcoin — so this is unfinished, not abandoned.
 
 Finishing it needs three things, in order:
 
@@ -180,6 +261,17 @@ id.
   `FREE_SHIPPING_OVER` price the Medusa shipping option that actually
   charges the order. Nothing enforces that they agree, and if they drift the
   customer is shown one number and billed another.
+
+- **The checkout picks the payment method for the customer.**
+  `PROVIDER_PREFERENCE` in `src/lib/medusa.ts` decides, and
+  `availablePaymentMethod` duplicates the same ordering to write the copy.
+  Once cards work, the choice belongs to the customer and both constants
+  should be replaced by a payment-method step.
+
+- **Refunds in Bitcoin are not silent.** There is no stored instrument to
+  push money back to, so BTCPay answers a refund with a pull payment — a
+  claim link the customer opens to name a destination address. The provider
+  returns it as `refundClaimLink`, but nothing emails it to anyone yet.
 
 - **No authentication.** `order/[id]` is readable by anyone who knows the id.
 - **No real product photography** — `src/components/vial.tsx` draws a tinted SVG
