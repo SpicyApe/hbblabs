@@ -113,11 +113,16 @@ installed on the account; the practical difference is that pull requests get no
 deploy previews. `netlify deploy --prod --build` still works for deploying
 without a push.
 
-**Backend** — `SpicyApe/hbblabs-backend`, private, on Railway. It deploys by
-CLI upload (`railway up` from the repo root), *not* from GitHub: Railway's
-GitHub App is not connected to the account, so pushing there deploys nothing.
-Push and deploy are two separate acts, and forgetting the second is the easy
-mistake.
+**Backend** — `SpicyApe/hbblabs-backend`, private, on Railway. Pushing to `main`
+deploys
+it too. `railway up` still works and is the way to deploy something that is
+not committed.
+
+Connecting it needed two separate things, which is worth knowing because only
+one is obvious: installing Railway's GitHub App, which grants access to the
+repos, and linking a GitHub identity to the Railway *account*, which says who
+you are. This account was created with an email and had no GitHub identity, so
+the repo picker stayed empty however many times the app was installed.
 
 The backend is private on purpose. Nothing secret is tracked — `.gitignore`
 covers `**/.env`, and only `.env.template` with placeholder values is in the
