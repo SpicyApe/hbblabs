@@ -8,7 +8,19 @@ export const brand = {
   name: "Hercules",
   legalName: "Hercules Research Co.",
   tagline: "Research-grade peptides, verified batch by batch.",
-  domain: "hercules.example",
+  /**
+   * The canonical host. Feeds `metadataBase`, so every canonical and Open
+   * Graph URL is built from it — it was left as a placeholder, which meant
+   * those URLs pointed at a domain nobody owns.
+   */
+  domain: "hbb-labs.com",
+  /*
+   * Deliberately still a placeholder. hbb-labs.com has no MX records, so
+   * support@hbb-labs.com would bounce — and a plausible address that silently
+   * eats customer mail is worse than one that is obviously fake. It is shown
+   * in the footer and on the contact page, so set a real, reachable address
+   * before launch.
+   */
   supportEmail: "support@hercules.example",
 
   /** Minimum age asserted at the compliance gate. */
