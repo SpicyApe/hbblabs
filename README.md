@@ -102,6 +102,39 @@ assumes a browser holding a cookie session against the host that renders the
 pages. Medusa treats carts as server-side objects addressed by id, which is
 why the same operation works here.
 
+## Deployment
+
+Two repos, two hosts, and they do not deploy the same way.
+
+**Storefront** — this repo, public, on Netlify at **hbb-labs.com**. Pushing to
+`main` builds and deploys automatically. The link is a read-only deploy key
+plus a push webhook rather than Netlify's GitHub App, because the app was never
+installed on the account; the practical difference is that pull requests get no
+deploy previews. `netlify deploy --prod --build` still works for deploying
+without a push.
+
+**Backend** — `SpicyApe/hbblabs-backend`, private, on Railway. It deploys by
+CLI upload (`railway up` from the repo root), *not* from GitHub: Railway's
+GitHub App is not connected to the account, so pushing there deploys nothing.
+Push and deploy are two separate acts, and forgetting the second is the easy
+mistake.
+
+The backend is private on purpose. Nothing secret is tracked — `.gitignore`
+covers `**/.env`, and only `.env.template` with placeholder values is in the
+tree — but it is the repo where a payment key would land if one were ever
+pasted into the wrong file, and public-to-private does not un-index what has
+already been scraped.
+
+### Domains
+
+`hbb-labs.com` is the primary domain, on Netlify DNS, with a wildcard
+certificate. `www` redirects to it. `shop.hbb-labs.com` was the original
+address and has been dropped — promoting the apex to primary deleted its DNS
+record, and it was retired rather than restored since nothing pointed at it.
+
+WordPress previously served the apex from WordPress.com, and the domain is
+still registered with Automattic; only the nameservers moved.
+
 ## Payments — Bitcoin, via BTCPay
 
 The store can take money. Bitcoin was first not because it is the obvious
