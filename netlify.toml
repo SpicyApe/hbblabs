@@ -1,2 +1,17 @@
 [build]
   command = "next build --webpack"
+  publish = ".next"
+
+# Every route here is server-rendered, so the site is nothing without this
+# plugin: it turns the Next build into the serverless handler Netlify invokes.
+#
+# It has to be declared. Deploying from the CLI worked without it because the
+# CLI detects Next.js locally and applies it on the way out; a build running on
+# Netlify's own servers does not, and published .next as a plain static folder.
+# The result was a site that deployed successfully and then 404ed on every
+# page, which is a worse failure than a build that breaks loudly.
+#
+# Turbopack is deliberately not used: `next build` defaults to it, and the
+# plugin's edge bundling cannot handle the output.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
